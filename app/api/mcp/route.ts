@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
-import { EmailService } from "paubox-node"
+import pauboxNode from "paubox-node"
 
 // Initialize Paubox Email Service
 const initPauboxClient = () => {
@@ -11,7 +11,8 @@ const initPauboxClient = () => {
     throw new Error("Missing Paubox API credentials. Set PAUBOX_API_KEY and PAUBOX_API_USER environment variables.")
   }
 
-  return new EmailService(apiKey, apiUser)
+  // The CommonJS export is a factory function: emailService({ apiKey, apiUsername })
+  return pauboxNode.emailService({ apiKey, apiUsername: apiUser })
 }
 
 const handler = createMcpHandler(
@@ -109,4 +110,14 @@ const handler = createMcpHandler(
   { basePath: "/api" },
 )
 
-export { handler as GET, handler as POST, handler as DELETE }
+
+import { NextRequest, NextResponse } from 'next/server';
+
+export const GET = (req: NextRequest) => {
+  return new NextResponse(
+    JSON.stringify({ error: 'Method Not Allowed' }),
+    { status: 405, headers: { 'Content-Type': 'application/json' } }
+  );
+};
+
+export { handler as POST, handler as DELETE };
