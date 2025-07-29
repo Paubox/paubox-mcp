@@ -101,7 +101,7 @@ const handler = createMcpHandler(
         try {
           validateCredentials(apiKey, apiUser)
 
-          const paubox = new EmailService(apiKey, apiUser)
+          const paubox = new pauboxNode.emailService({ apiKey, apiUsername: apiUser })
           const response = await paubox.getEmailDisposition(sourceTrackingId)
 
           const statusEmoji =
@@ -151,7 +151,7 @@ const handler = createMcpHandler(
           validateCredentials(apiKey, apiUser)
 
           // Test the credentials by attempting to initialize the service
-          const paubox = new EmailService(apiKey, apiUser)
+          const paubox = new pauboxNode.emailService({ apiKey, apiUsername: apiUser })
 
           // We could make a test call here, but for now we'll just validate the format
           return {
