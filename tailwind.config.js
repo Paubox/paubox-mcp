@@ -1,5 +1,3 @@
-import type { Config } from "tailwindcss";
-
 // Tailwind CSS configuration for the project. This configuration
 // mirrors the one used in the Paubox MCP server repository and
 // defines custom colors, animations and other theme extensions. It
@@ -9,7 +7,7 @@ import type { Config } from "tailwindcss";
 //
 // See https://tailwindcss.com/docs/configuration for more information
 // about the available options.
-const config: Config = {
+const config = {
   darkMode: ["class"],
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
@@ -51,7 +49,8 @@ const config: Config = {
           foreground: "hsl(var(--destructive-foreground))",
         },
         border: {
-          DEFAULT: "hsl(var(--border))", // 👈 fix: now an object
+          DEFAULT: "hsl(var(--border))", 
+          border: "hsl(var(--border))",
         },
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
