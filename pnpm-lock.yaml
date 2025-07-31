@@ -16,7 +16,7 @@ importers:
         version: 1.17.1
       '@paubox/components':
         specifier: git+https://github.com/paubox/components.git
-        version: ui@git+https://github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        version: ui@git+ssh://git@github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-accordion':
         specifier: 1.2.11
         version: 1.2.11(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -3423,8 +3423,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  ui@git+https://github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75:
-    resolution: {commit: cd5e286fd161c38d9b31f67a704b950a09607f75, repo: git+https://github.com/paubox/components.git, type: git}
+  ui@git+ssh://git@github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75:
+    resolution: {commit: cd5e286fd161c38d9b31f67a704b950a09607f75, repo: git+ssh://git@github.com/paubox/components.git, type: git}
     version: 0.0.0
 
   undici-types@7.8.0:
@@ -6985,7 +6985,7 @@ snapshots:
 
   typescript@5.9.2: {}
 
-  ui@git+https://github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
+  ui@git+ssh://git@github.com/paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
     dependencies:
       '@mui/base': 5.0.0-beta.66(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tanstack/react-table': 8.21.3(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
