@@ -29,17 +29,12 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Configure Git for private repos
+      - name: Inject GitHub token into lockfile Git URLs
         run: |
-          # Explicitly rewrite the paubox/components library URL to use token
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components".insteadOf "https://github.com/paubox/components"
-          # Explicitly rewrite the SSH URL format for paubox/components
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components".insteadOf "git@github.com:paubox/components"
+          sed -i.bak "s|git+ssh://git@github.com/paubox/components.git|https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components|g" pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build project
         run: pnpm build
