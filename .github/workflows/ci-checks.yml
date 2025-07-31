@@ -31,8 +31,10 @@ jobs:
 
       - name: Configure Git for private repos
         run: |
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com".insteadOf "git@github.com:"
+          # Explicitly rewrite the paubox/components library URL to use token
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components".insteadOf "https://github.com/paubox/components"
+          # Explicitly rewrite the SSH URL format for paubox/components
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components".insteadOf "git@github.com:paubox/components"
 
       - name: Install dependencies
         run: pnpm install
