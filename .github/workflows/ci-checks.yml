@@ -14,9 +14,12 @@ jobs:
     permissions:
       contents: read
       packages: read
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -29,6 +32,7 @@ jobs:
       - name: Configure Git for private repos
         run: |
           git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: pnpm install
