@@ -11,6 +11,9 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,8 +26,14 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      - name: Configure Git for private repos
+        run: |
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Install dependencies
         run: pnpm install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build project
         run: pnpm build
