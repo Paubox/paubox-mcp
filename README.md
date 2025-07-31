@@ -34,7 +34,6 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 
 This project uses Paubox's official design system:
 
-- **Paubox Components**: Uses `@paubox/components` for consistent UI components
 - **Brand Colors**: Implements Paubox's official color palette
 - **Logo**: Features the official Paubox logo
 - **Typography**: Uses Paubox's design tokens and spacing

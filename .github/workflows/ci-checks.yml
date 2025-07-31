@@ -29,10 +29,6 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Inject GitHub token into lockfile Git URLs
-        run: |
-          sed -i.bak "s|git+ssh://git@github.com/paubox/components.git|https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/paubox/components|g" pnpm-lock.yaml
-
       - name: Install dependencies
         run: pnpm install
 

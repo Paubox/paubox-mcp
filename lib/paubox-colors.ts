@@ -1,5 +1,4 @@
 // Paubox Brand Colors
-// Based on @paubox/components theme colors
 
 export const pauboxColors = {
   // Primary Colors (Blue)
