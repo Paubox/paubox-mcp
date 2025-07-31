@@ -10,10 +10,10 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://api.paubox.com/v1/",
+    "url": "https://paubox-mcp-server.vercel.app/api/mcp",
     "has_user_authentication": true
   },
-  "logo_url": "https://paubox.com/wp-content/uploads/2020/01/paubox-logo.png",
+  "logo_url": "https://paubox-mcp-server.vercel.app/paubox.png",
   "contact_email": "support@paubox.com",
   "legal_info_url": "https://www.paubox.com/ai-use-policy"
 } 
