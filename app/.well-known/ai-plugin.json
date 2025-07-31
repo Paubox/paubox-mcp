@@ -1,0 +1,19 @@
+{
+  "schema_version": "v1",
+  "name_for_model": "paubox_mcp",
+  "name_for_human": "Paubox MCP",
+  "description_for_model": "A Model Context Protocol (MCP) server for Paubox email services. This plugin provides access to Paubox's email API functionality including sending emails, managing templates, and retrieving email analytics. Requires both API key and API user credentials for authentication.",
+  "description_for_human": "Access Paubox email services through MCP. Send emails, manage templates, and get analytics.",
+  "auth": {
+    "type": "api_key",
+    "instructions": "You need to provide both your Paubox API key and API user to use this plugin. The API user is the portion of your API URL following 'https://api.paubox.net/v1/' as seen in your Paubox account."
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://api.paubox.com/v1/",
+    "has_user_authentication": true
+  },
+  "logo_url": "https://paubox.com/wp-content/uploads/2020/01/paubox-logo.png",
+  "contact_email": "support@paubox.com",
+  "legal_info_url": "https://www.paubox.com/ai-use-policy"
+} 
