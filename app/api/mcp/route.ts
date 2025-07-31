@@ -2,6 +2,11 @@ import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import pauboxNode from "paubox-node"
 
+// Wrapper for pauboxNode.emailService
+const createPauboxService = (config: { apiKey: string; apiUsername: string }) => {
+  return new pauboxNode.emailService(config)
+}
+
 // Validate Paubox credentials
 const validateCredentials = (apiKey: string, apiUser: string) => {
   if (!apiKey || !apiUser) {
@@ -36,7 +41,7 @@ const handler = createMcpHandler(
         try {
           validateCredentials(apiKey, apiUser)
 
-          const paubox = new pauboxNode.emailService({ apiKey, apiUsername: apiUser })
+          const paubox = createPauboxService({ apiKey, apiUsername: apiUser })
 
           const emailData = {
             from,
@@ -101,7 +106,7 @@ const handler = createMcpHandler(
         try {
           validateCredentials(apiKey, apiUser)
 
-          const paubox = new pauboxNode.emailService({ apiKey, apiUsername: apiUser })
+          const paubox = createPauboxService({ apiKey, apiUsername: apiUser })
           const response = await paubox.getEmailDisposition(sourceTrackingId)
 
           const statusEmoji =
@@ -151,7 +156,7 @@ const handler = createMcpHandler(
           validateCredentials(apiKey, apiUser)
 
           // Test the credentials by attempting to initialize the service
-          const paubox = new pauboxNode.emailService({ apiKey, apiUsername: apiUser })
+          const paubox = createPauboxService({ apiKey, apiUsername: apiUser })
 
           // We could make a test call here, but for now we'll just validate the format
           return {

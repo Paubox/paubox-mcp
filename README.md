@@ -13,6 +13,7 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 - HIPAA-compliant communication
 - Easy integration with AI assistants that support MCP
 - Paubox-branded UI with official components and styling
+- **Proxy support for custom endpoints** (development/testing)
 
 ## For Paubox Customers
 
@@ -29,6 +30,66 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
    ```bash
    pnpm dev
    ```
+
+## Proxy Configuration (Development/Testing)
+
+For development or testing purposes, you can configure the MCP server to proxy requests to a custom endpoint instead of the official Paubox API.
+
+### Manual Setup
+
+To enable the proxy, you need to manually import the proxy module in your application. Add this import to your main application file or where you initialize your server:
+
+```typescript
+// Import this in your main app file to enable proxy functionality
+import './lib/paubox-proxy'
+```
+
+### Environment Variables
+
+Set these environment variables to enable proxy functionality:
+
+```bash
+# Enable proxy mode
+PAUBOX_PROXY_ENABLED=true
+
+# Custom base URL for proxying requests
+PAUBOX_CUSTOM_BASE_URL=https://your-custom-endpoint.com
+```
+
+### How It Works
+
+The proxy system uses axios interceptors to automatically redirect all Paubox API requests from:
+- `https://api.paubox.net/v1/{apiUser}/`
+
+To your custom endpoint:
+- `https://your-custom-endpoint.com/v1/{apiUser}/`
+
+The proxy replaces the original API domain (`https://api.paubox.net`) with your custom base URL while preserving the API path structure.
+
+### Use Cases
+
+- **Testing**: Point to a mock API server for testing
+- **Development**: Use a local development server
+- **Custom Deployment**: Route through your own proxy server
+- **Staging**: Use a staging environment
+
+### Example Configuration
+
+```bash
+# For local development
+PAUBOX_PROXY_ENABLED=true
+PAUBOX_CUSTOM_BASE_URL=http://localhost:8080
+
+# For staging environment
+PAUBOX_PROXY_ENABLED=true
+PAUBOX_CUSTOM_BASE_URL=https://staging-api.paubox.com
+```
+
+### Implementation Details
+
+The proxy is implemented in `lib/paubox-proxy.ts` and only initializes when the `PAUBOX_PROXY_ENABLED` environment variable is set to `true`. It intercepts all HTTP requests made by the paubox-node package and modifies the base URL accordingly.
+
+**Note**: The proxy is not automatically loaded by the MCP server to avoid test interference. You must manually import it if you want to use proxy functionality.
 
 ## Styling & Components
 
