@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
+import '../lib/paubox-proxy'
 
 export const metadata: Metadata = {
   title: 'Paubox MCP Server',
