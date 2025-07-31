@@ -15,7 +15,7 @@ importers:
         specifier: latest
         version: 1.17.0
       '@paubox/components':
-        specifier: https://github.com/paubox/components
+        specifier: git+https://github.com/paubox/components.git
         version: ui@git+https://git@github.com:paubox/components.git#cd5e286fd161c38d9b31f67a704b950a09607f75(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-accordion':
         specifier: 1.2.11
@@ -4145,7 +4145,7 @@ snapshots:
   '@mui/base@5.0.0-beta.66(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
       '@babel/runtime': 7.28.2
-      '@floating-ui/react-dom': 2.1.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@floating-ui/react-dom': 2.1.5(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@mui/types': 7.4.4(@types/react@19.1.9)
       '@mui/utils': 6.4.9(@types/react@19.1.9)(react@19.1.1)
       '@popperjs/core': 2.11.8
