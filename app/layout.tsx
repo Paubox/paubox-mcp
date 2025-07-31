@@ -4,9 +4,12 @@ import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Paubox MCP Server',
+  description: 'Model Context Protocol server for secure email communication via Paubox',
   generator: 'v0.dev',
+  icons: {
+    icon: '/paubox.png',
+  },
 }
 
 export default function RootLayout({

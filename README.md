@@ -8,21 +8,54 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 
 ## Features
 
-- **Multi-tenant Architecture**: Each user provides their own API credentials
-- **Credential Validation**: Validate API credentials before sending emails  
-- **Secure Email Sending**: Send HIPAA-compliant emails with encryption
-- **Delivery Tracking**: Check email delivery status and open rates
-- **Error Handling**: Comprehensive error messages and troubleshooting
-- **No Credential Storage**: Credentials are used per-request only
+- Send secure emails with optional encryption
+- Check email delivery status
+- HIPAA-compliant communication
+- Easy integration with AI assistants that support MCP
+- Paubox-branded UI with official components and styling
 
 ## For Paubox Customers
 
-### Getting Your API Credentials
+1. Clone this repository
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+3. Set up environment variables:
+   - `PAUBOX_API_KEY`: Your Paubox API key
+   - `PAUBOX_API_USER`: Your Paubox API user/username
 
-1. Log into your Paubox account
-2. Navigate to API settings
-3. Generate or retrieve your API key and API user
-4. Use these credentials when prompted by your AI assistant
+4. Run the development server:
+   ```bash
+   pnpm dev
+   ```
+
+## Styling & Components
+
+This project uses Paubox's official design system:
+
+- **Paubox Components**: Uses `@paubox/components` for consistent UI components
+- **Brand Colors**: Implements Paubox's official color palette
+- **Logo**: Features the official Paubox logo
+- **Typography**: Uses Paubox's design tokens and spacing
+
+### Color System
+
+The application uses Paubox's official color palette:
+- **Primary (Blue)**: `#2E70FF` - Main brand color
+- **Success (Green)**: `#0EA472` - Success states
+- **Warning (Yellow)**: `#FFCA2F` - Warning states  
+- **Danger (Red)**: `#E02D3C` - Error states
+- **Neutral (Gray)**: Various shades for text and backgrounds
+
+### Components
+
+Available Paubox components include:
+- Buttons with various styles and states
+- Cards with branded headers and content areas
+- Alerts for notifications and warnings
+- Typography components
+- Form inputs and controls
 
 ### Connecting to AI Assistants
 
@@ -32,7 +65,7 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 2. Under the **Developer** tab, tap **Edit Config**
 3. Add this configuration:
 
-\`\`\`json
+```json
 {
   "mcpServers": {
     "paubox": {
@@ -40,13 +73,12 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
     }
   }
 }
-\`\`\`
+```
 
-#### Cursor
+#### Cursor (for local testing)
 
 Add to `.cursor/mcp.json`:
-
-\`\`\`json
+```json
 {
   "mcpServers": {
     "paubox": {
@@ -54,7 +86,7 @@ Add to `.cursor/mcp.json`:
     }
   }
 }
-\`\`\`
+```
 
 ## Available Tools
 
@@ -115,6 +147,29 @@ Check the status of email with tracking ID "abc123" using my API credentials
 ## Support
 
 For technical support or API access questions, contact Paubox support at support@paubox.com.
+
+## Development
+
+### Testing
+
+Run the test suite:
+```bash
+pnpm test
+```
+
+### Building
+
+Build for production:
+```bash
+pnpm build
+```
+
+### Styling
+
+The project uses a hybrid approach:
+- **Tailwind CSS**: For layout and responsive design
+- **Paubox Colors**: Official brand colors via `lib/paubox-colors.ts`
+- **Component Styling**: Inline styles for Paubox-specific theming
 
 ## License
 
