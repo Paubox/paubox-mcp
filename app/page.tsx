@@ -47,7 +47,7 @@ export default function Home() {
               Secure Email API
             </CardTitle>
             <CardDescription style={{ color: pauboxColors.text.primary }}>
-              Connect AI assistants to Paubox's HIPAA-compliant email service
+              Connect AI assistants to Paubox&apos;s HIPAA-compliant email service
             </CardDescription>
           </CardHeader>
           <CardContent className="bg-white">

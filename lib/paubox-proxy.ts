@@ -1,3 +1,5 @@
+import axios, { InternalAxiosRequestConfig, AxiosResponse } from 'axios'
+
 // Paubox Proxy Configuration
 export const PAUBOX_PROXY_CONFIG = {
   enabled: process.env.PAUBOX_PROXY_ENABLED === 'true',
@@ -12,11 +14,8 @@ export const configurePauboxProxy = () => {
     return
   }
 
-  // Dynamically import axios to avoid TypeScript issues
-  const axios = require('axios')
-  
   // Add request interceptor to modify URLs
-  axios.interceptors.request.use((config: any) => {
+  axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     // Check if this is a Paubox API request
     if (config.baseURL && config.baseURL.includes('api.paubox.net')) {
       // Replace the base URL with your custom endpoint
@@ -32,13 +31,13 @@ export const configurePauboxProxy = () => {
 
   // Add response interceptor for debugging
   axios.interceptors.response.use(
-    (response: any) => {
-      if (response.config.baseURL && response.config.baseURL.includes(PAUBOX_PROXY_CONFIG.customBaseURL)) {
+    (response: AxiosResponse) => {
+      if (response.config?.baseURL && response.config.baseURL.includes(PAUBOX_PROXY_CONFIG.customBaseURL)) {
         console.log('Paubox request successfully proxied')
       }
       return response
     },
-    (error: any) => {
+    (error: { config?: { baseURL?: string }; message?: string }) => {
       if (error.config?.baseURL && error.config.baseURL.includes(PAUBOX_PROXY_CONFIG.customBaseURL)) {
         console.error('Paubox proxied request failed:', error.message)
       }

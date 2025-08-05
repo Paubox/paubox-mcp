@@ -8,4 +8,5 @@ module.exports = {
     }],
   },
   extensionsToTreatAsEsm: ['.ts'],
+  testPathIgnorePatterns: ['/node_modules/', 'test-helpers\\.ts$'],
 };
