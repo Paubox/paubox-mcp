@@ -64,6 +64,9 @@ const handler = createMcpHandler(
           }
 
           const pauboxService = createPauboxService({ apiKey, apiUsername: apiUser })
+          // TODO: remove this for production
+          process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = '0';
+          pauboxService.baseURL = 'https://api.staging.paubox.net/emailapi/v1/' + apiUser + '/'
           const emailMessage: PauboxMessage = new pauboxNode.message({
             from,
             to,
