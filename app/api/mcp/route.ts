@@ -22,14 +22,6 @@ type PauboxMessage = {
   toJSON(): unknown;
 }
 
-// Add minimal error handler to capture 'h' variable
-process.on('uncaughtException', (error) => {
-  if (error.message.includes('h.send')) {
-    console.error("ding dong")
-    //console.error('🔍 DEBUG: Found h.send error at:', error.stack?.split('\n')[1])
-  }
-})
-
 // Create Paubox service
 const createPauboxService = (config: { apiKey: string; apiUsername: string }) => {
   return new pauboxNode.emailService(config)
@@ -66,7 +58,7 @@ const handler = createMcpHandler(
           const pauboxService = createPauboxService({ apiKey, apiUsername: apiUser })
           // TODO: remove this for production
           process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = '0';
-          pauboxService.baseURL = 'https://api.staging.paubox.net/emailapi/v1/' + apiUser + '/'
+          pauboxService.baseURL = 'https://api.paubox.net/emailapi/v1/' + apiUser + '/'
           const emailMessage: PauboxMessage = new pauboxNode.message({
             from,
             to,
