@@ -224,6 +224,29 @@ Build for production:
 pnpm build
 ```
 
+### Deployment
+
+This project uses GitHub Actions for automated deployment to AWS ECR. When code is merged to the `develop` branch, it automatically builds a Docker image and pushes it to the staging ECR repository.
+
+#### GitHub Secrets
+
+The deployment workflow uses the following secrets configured at the organization level:
+
+1. **AWS_GITHUB_ACTIONS_ACCESS_KEY_ID**: AWS access key ID
+2. **AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY**: AWS secret access key
+
+These credentials have permissions to:
+- Push to ECR repository: `285263271540.dkr.ecr.us-west-2.amazonaws.com/paubox-mcp-server-staging`
+- Authenticate with ECR
+
+#### Workflow Details
+
+The deployment workflow (`.github/workflows/deploy-staging.yml`) will:
+- Trigger on pushes to `develop` branch and pull requests to `develop`
+- Build a multi-platform Docker image
+- Push the image to AWS ECR with appropriate tags
+- Use GitHub Actions cache for faster builds
+
 ### Styling
 
 The project uses a hybrid approach:
