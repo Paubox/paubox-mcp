@@ -243,9 +243,19 @@ These credentials have permissions to:
 
 The deployment workflow (`.github/workflows/deploy-staging.yml`) will:
 - Trigger on pushes to `develop` branch and pull requests to `develop`
+- Support manual deployment of any branch via workflow dispatch
 - Build a multi-platform Docker image
 - Push the image to AWS ECR with appropriate tags
 - Use GitHub Actions cache for faster builds
+
+#### Manual Deployment
+
+To deploy a feature branch manually:
+1. Go to the **Actions** tab in GitHub
+2. Select **Deploy to Staging** workflow
+3. Click **Run workflow**
+4. Enter the branch name you want to deploy
+5. Click **Run workflow**
 
 ### Styling
 

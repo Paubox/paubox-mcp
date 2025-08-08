@@ -7,6 +7,13 @@ on:
   pull_request:
     branches:
       - develop
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: true
+        default: 'develop'
+        type: string
 
 env:
   AWS_REGION: us-west-2
@@ -20,6 +27,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.branch || github.ref }}
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
