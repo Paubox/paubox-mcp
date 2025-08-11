@@ -5,21 +5,14 @@ on:
     types: [closed]
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      git_sha:
-        description: 'Git commit SHA to deploy (from staging)'
-        required: true
-        type: string
 
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: paubox-mcp-server-production
   ECR_REGISTRY: 285263271540.dkr.ecr.us-west-2.amazonaws.com
-  STAGING_ECR_REPOSITORY: paubox-mcp-server-staging
 
 jobs:
-  deploy-from-staging:
+  build-and-deploy:
     runs-on: ubuntu-latest
     # Only run if PR was merged (not just closed)
     if: github.event.pull_request.merged == true
@@ -28,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.git_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -42,24 +35,33 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Get git commit SHA
         id: git-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Pull image from staging ECR
-        run: |
-          docker pull ${{ env.ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=raw,value=${{ steps.git-sha.outputs.sha }}
+            type=raw,value=latest
 
-      - name: Tag image for production
-        run: |
-          # Tag the staging image for production ECR
-          docker tag ${{ env.ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }} ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}
-          docker tag ${{ env.ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }} ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
-
-      - name: Push to production ECR
-        run: |
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Output deployment info
         uses: actions/github-script@v7
@@ -67,6 +69,5 @@ jobs:
           script: |
             console.log(`Production deployment completed!`)
             console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
-            console.log(`Source image: ${{ env.ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
             console.log(`Production image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
             console.log(`Latest: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest`)
