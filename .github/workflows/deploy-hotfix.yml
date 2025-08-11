@@ -1,0 +1,106 @@
+name: Deploy Hotfix to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      hotfix_branch:
+        description: 'Branch to deploy (hotfix branch, feature branch, etc.)'
+        required: true
+        type: string
+      confirm_hotfix:
+        description: 'Confirm this is an intentional hotfix deployment'
+        required: true
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: paubox-mcp-server-production
+  ECR_REGISTRY: 285263271540.dkr.ecr.us-west-2.amazonaws.com
+
+jobs:
+  validate-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate hotfix confirmation
+        if: ${{ !inputs.confirm_hotfix }}
+        run: |
+          echo "Error: Hotfix deployment must be explicitly confirmed"
+          exit 1
+      
+      - name: Checkout code to validate branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.hotfix_branch }}
+      
+      - name: Validate branch exists
+        run: |
+          echo "Hotfix deployment confirmed for branch: ${{ inputs.hotfix_branch }}"
+          echo "Current commit: $(git rev-parse --short HEAD)"
+
+  build-and-deploy:
+    needs: validate-hotfix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.hotfix_branch }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_GITHUB_ACTIONS_ACCESS_KEY_ID }}
+          aws-secret-access-key: >-
+            ${{ secrets.AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get git commit SHA
+        id: git-sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get branch name
+        id: branch-name
+        run: echo "branch=$(echo '${{ inputs.hotfix_branch }}' | sed 's/[^a-zA-Z0-9]/-/g')" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=raw,value=${{ steps.git-sha.outputs.sha }}
+            type=raw,value=hotfix-${{ steps.branch-name.outputs.branch }}-${{ steps.git-sha.outputs.sha }}
+            type=raw,value=hotfix-${{ steps.branch-name.outputs.branch }}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output hotfix deployment info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log(`🚨 HOTFIX DEPLOYMENT COMPLETED! 🚨`)
+            console.log(`Branch: ${{ inputs.hotfix_branch }}`)
+            console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
+            console.log(`Production image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
+            console.log(`Hotfix tag: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:hotfix-${{ steps.branch-name.outputs.branch }}-${{ steps.git-sha.outputs.sha }}`)
+            console.log(`Latest: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest`)
+            console.log(`⚠️  This deployment skipped staging environment!`)

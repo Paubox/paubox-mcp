@@ -45,6 +45,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Get git commit SHA
+        id: git-sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -55,6 +59,7 @@ jobs:
             type=ref,event=pr
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ steps.git-sha.outputs.sha }}
 
       - name: Build and push Docker image
         id: build
@@ -73,3 +78,5 @@ jobs:
         with:
           script: |
             console.log(`Image digest: ${{ steps.build.outputs.digest }}`)
+            console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
+            console.log(`Staging image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
