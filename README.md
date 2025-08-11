@@ -226,36 +226,74 @@ pnpm build
 
 ### Deployment
 
-This project uses GitHub Actions for automated deployment to AWS ECR. When code is merged to the `develop` branch, it automatically builds a Docker image and pushes it to the staging ECR repository.
+This project uses GitHub Actions for automated deployment to AWS ECR with three distinct deployment workflows:
+
+#### Deployment Workflows
+
+1. **Staging Deployment** (`.github/workflows/deploy-staging.yml`)
+   - **Trigger**: Pushes to `develop` branch and pull requests to `develop`
+   - **Purpose**: Builds and pushes Docker images to staging ECR for testing
+   - **Repository**: `paubox-mcp-server-staging`
+   - **Tags**: Git SHA, branch name, PR number, and `latest` for develop branch
+
+2. **Production Deployment** (`.github/workflows/deploy-prod.yml`)
+   - **Trigger**: Pull request merges to `main` branch
+   - **Purpose**: Automatically deploys approved changes to production
+   - **Repository**: `paubox-mcp-server-production`
+   - **Tags**: Git SHA and `latest`
+   - **Process**: Builds Docker image directly from source code
+
+3. **Hotfix Deployment** (`.github/workflows/deploy-hotfix.yml`)
+   - **Trigger**: Manual workflow dispatch
+   - **Purpose**: Emergency deployments and urgent fixes
+   - **Repository**: `paubox-mcp-server-production`
+   - **Use Cases**: Critical bug fixes, security patches, rollbacks
 
 #### GitHub Secrets
 
-The deployment workflow uses the following secrets configured at the organization level:
+The deployment workflows use the following secrets configured at the organization level:
 
 1. **AWS_GITHUB_ACTIONS_ACCESS_KEY_ID**: AWS access key ID
 2. **AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY**: AWS secret access key
 
 These credentials have permissions to:
-- Push to ECR repository: `285263271540.dkr.ecr.us-west-2.amazonaws.com/paubox-mcp-server-staging`
+- Push to staging ECR repository: `285263271540.dkr.ecr.us-west-2.amazonaws.com/paubox-mcp-server-staging`
+- Push to production ECR repository: `285263271540.dkr.ecr.us-west-2.amazonaws.com/paubox-mcp-server-production`
 - Authenticate with ECR
 
-#### Workflow Details
+#### Deployment Process
 
-The deployment workflow (`.github/workflows/deploy-staging.yml`) will:
-- Trigger on pushes to `develop` branch and pull requests to `develop`
-- Support manual deployment of any branch via workflow dispatch
-- Build a multi-platform Docker image
-- Push the image to AWS ECR with appropriate tags
-- Use GitHub Actions cache for faster builds
+**Staging Flow:**
+1. Code pushed to `develop` branch or PR created
+2. GitHub Actions builds Docker image
+3. Image pushed to staging ECR with appropriate tags
+4. Available for testing and validation
+
+**Production Flow:**
+1. PR merged to `main` branch
+2. GitHub Actions automatically builds production Docker image
+3. Image pushed to production ECR with git SHA and latest tags
+4. Ready for production deployment
+
+**Hotfix Flow:**
+1. Manual workflow trigger
+2. Builds and deploys specific code version
+3. Bypasses normal PR process for urgent situations
 
 #### Manual Deployment
 
-To deploy a feature branch manually:
+To deploy a feature branch manually to staging:
 1. Go to the **Actions** tab in GitHub
 2. Select **Deploy to Staging** workflow
 3. Click **Run workflow**
 4. Enter the branch name you want to deploy
 5. Click **Run workflow**
+
+For production hotfixes:
+1. Go to the **Actions** tab in GitHub
+2. Select **Deploy Hotfix** workflow
+3. Click **Run workflow**
+4. Follow the workflow prompts
 
 ### Styling
 

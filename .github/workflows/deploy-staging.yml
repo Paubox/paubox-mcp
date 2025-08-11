@@ -7,10 +7,11 @@ on:
   pull_request:
     branches:
       - develop
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to deploy'
+        description: 'Branch to deploy to staging'
         required: true
         default: 'develop'
         type: string
@@ -28,7 +29,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
+          ref: ${{ github.event.inputs.branch || github.head_ref || github.ref }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -49,6 +50,15 @@ jobs:
         id: git-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Get source branch name
+        id: source-branch
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "branch=$(echo '${{ github.head_ref }}' | sed 's/[^a-zA-Z0-9]/-/g')" >> $GITHUB_OUTPUT
+          else
+            echo "branch=$(echo '${{ github.ref_name }}' | sed 's/[^a-zA-Z0-9]/-/g')" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -60,6 +70,7 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=${{ steps.git-sha.outputs.sha }}
+            type=raw,value=pr-${{ steps.source-branch.outputs.branch }}-${{ steps.git-sha.outputs.sha }},enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
         id: build
@@ -79,4 +90,9 @@ jobs:
           script: |
             console.log(`Image digest: ${{ steps.build.outputs.digest }}`)
             console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
+            if ('${{ github.event_name }}' === 'pull_request') {
+              console.log(`PR from: ${{ github.head_ref }}`)
+              console.log(`PR to: ${{ github.base_ref }}`)
+            }
             console.log(`Staging image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
+            console.log(`Source branch: ${{ steps.source-branch.outputs.branch }}`)
