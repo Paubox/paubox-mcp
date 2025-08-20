@@ -11,15 +11,17 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to deploy to staging'
+        description: "Branch to deploy to staging"
         required: true
-        default: 'develop'
+        default: "develop"
         type: string
 
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: paubox-mcp-server-staging
   ECR_REGISTRY: 285263271540.dkr.ecr.us-west-2.amazonaws.com
+  ECS_CLUSTER: paubox-mcp-server-staging
+  ECS_SERVICE: webapp-service
 
 jobs:
   build-and-push:
@@ -96,3 +98,23 @@ jobs:
             }
             console.log(`Staging image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
             console.log(`Source branch: ${{ steps.source-branch.outputs.branch }}`)
+
+  deploy-to-ecs:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' # Only deploy on actual pushes, not PRs
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_GITHUB_ACTIONS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_ECR_REGION }}
+
+      - name: Force new ECS deployment
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment

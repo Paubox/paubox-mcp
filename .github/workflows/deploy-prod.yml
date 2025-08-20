@@ -10,6 +10,8 @@ env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: paubox-mcp-server-production
   ECR_REGISTRY: 285263271540.dkr.ecr.us-west-2.amazonaws.com
+  ECS_CLUSTER: paubox-mcp-server-production
+  ECS_SERVICE: webapp-service
 
 jobs:
   build-and-deploy:
@@ -71,3 +73,22 @@ jobs:
             console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
             console.log(`Production image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
             console.log(`Latest: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest`)
+
+  deploy-to-ecs:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_GITHUB_ACTIONS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_ECR_REGION }}
+
+      - name: Force new ECS deployment
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment

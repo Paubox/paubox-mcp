@@ -82,11 +82,11 @@ export default function Home() {
                     send_secure_email
                   </h3>
                   <p className="mt-1 text-sm" style={{ color: pauboxColors.text.secondary }}>
-                    Send HIPAA-compliant emails with optional encryption and delivery tracking
+                    Send HIPAA compliant emails with optional encryption and delivery tracking
                   </p>
                 </div>
                 
-                <div 
+                {/* <div 
                   className="rounded-lg p-4 border"
                   style={{
                     background: pauboxColors.neutral[100],
@@ -100,7 +100,7 @@ export default function Home() {
                   <p className="mt-1 text-sm" style={{ color: pauboxColors.text.secondary }}>
                     Check delivery status and open tracking for sent emails
                   </p>
-                </div>
+                </div> */}
               </div>
             </CardContent>
           </Card>
