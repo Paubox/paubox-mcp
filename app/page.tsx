@@ -146,7 +146,7 @@ export default function Home() {
                   borderColor: pauboxTheme.button.outline.border,
                   color: pauboxTheme.button.outline.text,
                 }}
-                onClick={() => (window.location.href = "https://docs.paubox.com/docs/paubox_email_api/quickstart")}
+                onClick={() => (window.location.href = "https://docs.paubox.com/paubox_email_api/docs/quickstart")}
               >
                 View Documentation
               </Button>
