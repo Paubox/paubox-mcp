@@ -40,16 +40,16 @@ describe('MCP Route Tests', () => {
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
-    
+
     // Check that the response is successful
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toContain('text/event-stream')
-    
+
     // Parse SSE response
     const responseText = response.text
     const dataMatch = responseText.match(/data: (.+)/)
     expect(dataMatch).toBeTruthy()
-    
+
     if (dataMatch) {
       const responseData = JSON.parse(dataMatch[1])
       expect(responseData.jsonrpc).toBe('2.0')
@@ -88,16 +88,16 @@ describe('MCP Route Tests', () => {
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
-    
+
     // Check that the response is successful
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toContain('text/event-stream')
-    
+
     // Parse SSE response
     const responseText = response.text
     const dataMatch = responseText.match(/data: (.+)/)
     expect(dataMatch).toBeTruthy()
-    
+
     if (dataMatch) {
       const responseData = JSON.parse(dataMatch[1])
       expect(responseData.jsonrpc).toBe('2.0')
@@ -130,24 +130,27 @@ describe('MCP Route Tests', () => {
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
-    
+      .timeout(5000)
+
     // Should still return 200 but with error in result
+    expect(response).toBeDefined()
     expect(response.status).toBe(200)
-    
+
     // Parse SSE response
     const responseText = response.text
     const dataMatch = responseText.match(/data: (.+)/)
     expect(dataMatch).toBeTruthy()
-    
+
     if (dataMatch) {
       const responseData = JSON.parse(dataMatch[1])
       expect(responseData.jsonrpc).toBe('2.0')
       expect(responseData.id).toBe(3)
-      
-      // For validation errors, the response should have an error property
-      expect(responseData.error).toBeDefined()
-      expect(responseData.error.code).toBe(-32602)
-      expect(responseData.error.message).toContain('Invalid arguments for tool send_secure_email')
+
+      // For validation errors, the response should have error in result content
+      expect(responseData.result).toBeDefined()
+      expect(responseData.result.isError).toBe(true)
+      expect(responseData.result.content).toBeDefined()
+      expect(responseData.result.content[0].text).toContain('Invalid arguments for tool send_secure_email')
     }
   })
-}) 
+})
