@@ -1,13 +1,13 @@
 name: Deploy to Staging
 
 on:
-  push:
-    branches:
-      - develop
-  pull_request:
-    branches:
-      - develop
-    types: [opened, synchronize, reopened]
+#  push:
+#    branches:
+#      - develop
+#  pull_request:
+#    branches:
+#      - develop
+#    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       branch:
