@@ -1,0 +1,6 @@
+allowBuilds:
+  '@ampproject/toolbox-optimizer': set this to true or false
+  '@sentry/cli': set this to true or false
+  es5-ext: set this to true or false
+  fsevents: set this to true or false
+  unrs-resolver: set this to true or false

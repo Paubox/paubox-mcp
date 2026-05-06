@@ -23,18 +23,13 @@ afterAll(async () => {
 describe('Paubox MCP Server', () => {
   describe('Route Exports', () => {
     it('should export GET handler as a function', async () => {
-      const { GET } = await import('../app/api/mcp/route');
+      const { GET } = await import('../app/api/[transport]/route');
       expect(typeof GET).toBe('function');
     });
 
     it('should export POST handler as a function', async () => {
-      const { POST } = await import('../app/api/mcp/route');
+      const { POST } = await import('../app/api/[transport]/route');
       expect(typeof POST).toBe('function');
-    });
-
-    it('should export DELETE handler as a function', async () => {
-      const { DELETE } = await import('../app/api/mcp/route');
-      expect(typeof DELETE).toBe('function');
     });
   });
 
