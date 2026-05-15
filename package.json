@@ -89,5 +89,12 @@
     "axios": "^1.16.0",
     "ip-address": "^10.2.0",
     "postcss": "^8.5.14"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@sentry/cli",
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }
