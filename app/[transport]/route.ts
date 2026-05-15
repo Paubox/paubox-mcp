@@ -205,7 +205,7 @@ const mcpHandler = createMcpHandler(
     )
   },
   {},
-  { basePath: "/api" }
+  { basePath: "" }
 )
 
 export async function GET(req: Request) {

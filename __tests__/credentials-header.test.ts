@@ -35,7 +35,7 @@ describe('Claude Connectors — header-based credentials', () => {
   describe('validate_credentials', () => {
     it('succeeds with credentials provided only via headers', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
@@ -58,7 +58,7 @@ describe('Claude Connectors — header-based credentials', () => {
 
     it('returns missing-credentials error when no headers and no params', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .send(mcpCall(2, 'validate_credentials', {}));
@@ -79,7 +79,7 @@ describe('Claude Connectors — header-based credentials', () => {
 
     it('tool params take precedence over headers', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', 'header-key-should-be-ignored')
@@ -108,7 +108,7 @@ describe('Claude Connectors — header-based credentials', () => {
   describe('send_secure_email', () => {
     it('accepts credentials only via headers', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
@@ -137,7 +137,7 @@ describe('Claude Connectors — header-based credentials', () => {
 
     it('returns missing-credentials error when no headers and no params', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .send(mcpCall(5, 'send_secure_email', {
@@ -163,7 +163,7 @@ describe('Claude Connectors — header-based credentials', () => {
   describe('check_email_status', () => {
     it('accepts credentials only via headers', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
@@ -189,7 +189,7 @@ describe('Claude Connectors — header-based credentials', () => {
 
     it('returns missing-credentials error when no headers and no params', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .send(mcpCall(7, 'check_email_status', {
@@ -212,7 +212,7 @@ describe('Claude Connectors — header-based credentials', () => {
   describe('tools/list schema', () => {
     it('shows apiKey and apiUser as optional (not required) in all tools', async () => {
       const res = await request(testServer.baseUrl)
-        .post('/api/mcp')
+        .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .send({ jsonrpc: '2.0', id: 8, method: 'tools/list' });
