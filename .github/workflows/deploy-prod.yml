@@ -1,8 +1,7 @@
 name: Deploy to Production
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
       - main
 
@@ -16,8 +15,6 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    # Only run if PR was merged (not just closed)
-    if: github.event.pull_request.merged == true
 
     steps:
       - name: Checkout code
