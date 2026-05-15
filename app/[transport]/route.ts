@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import pauboxNode from 'paubox-node'
@@ -21,26 +22,47 @@ type PauboxMessage = {
   toJSON(): unknown;
 }
 
+type RequestCredentials = {
+  apiKey?: string
+  apiUser?: string
+}
+
+const credentialsStorage = new AsyncLocalStorage<RequestCredentials>()
+
 const createPauboxService = (config: { apiKey: string; apiUsername: string }) => {
   return new pauboxNode.emailService(config)
 }
 
-const handler = createMcpHandler(
+function resolveCredentials(params: { apiKey?: string; apiUser?: string }) {
+  const stored = credentialsStorage.getStore()
+  return {
+    apiKey: params.apiKey || stored?.apiKey || '',
+    apiUser: params.apiUser || stored?.apiUser || '',
+  }
+}
+
+const MISSING_CREDENTIALS_ERROR = "❌ API credentials required. Provide apiKey and apiUser as tool parameters, or configure them via connector headers (x-paubox-api-key, x-paubox-api-user)."
+
+const mcpHandler = createMcpHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (server: any) => {
     server.tool(
       "validate_credentials",
       "Validate Paubox API credentials before sending email",
       {
-        apiKey: z.string().min(10, "API key must be at least 10 characters"),
-        apiUser: z.string().min(1, "API user is required"),
+        apiKey: z.string().min(10, "API key must be at least 10 characters").optional(),
+        apiUser: z.string().min(1, "API user is required").optional(),
       },
-      async ({ apiKey, apiUser }: { apiKey: string; apiUser: string }) => {
+      async ({ apiKey: paramKey, apiUser: paramUser }: { apiKey?: string; apiUser?: string }) => {
         try {
-          if (!apiKey || apiKey.trim().length < 10) {
+          const { apiKey, apiUser } = resolveCredentials({ apiKey: paramKey, apiUser: paramUser })
+          if (!apiKey || !apiUser) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          if (apiKey.trim().length < 10) {
             throw new Error("Invalid API key format")
           }
-          if (!apiUser || apiUser.trim().length === 0) {
+          if (apiUser.trim().length === 0) {
             throw new Error("API user is required")
           }
           return {
@@ -68,8 +90,8 @@ const handler = createMcpHandler(
       "send_secure_email",
       "Send a secure, HIPAA-compliant email using Paubox with your API credentials",
       {
-        apiKey: z.string(),
-        apiUser: z.string(),
+        apiKey: z.string().optional(),
+        apiUser: z.string().optional(),
         from: z.string(),
         to: z.array(z.string()),
         subject: z.string(),
@@ -78,9 +100,9 @@ const handler = createMcpHandler(
         bcc: z.array(z.string()).optional(),
         forceSecureNotification: z.boolean().optional(),
       },
-      async ({ apiKey, apiUser, from, to, subject, message, cc, bcc, forceSecureNotification }: {
-        apiKey: string;
-        apiUser: string;
+      async ({ apiKey: paramKey, apiUser: paramUser, from, to, subject, message, cc, bcc, forceSecureNotification }: {
+        apiKey?: string;
+        apiUser?: string;
         from: string;
         to: string[];
         subject: string;
@@ -90,6 +112,11 @@ const handler = createMcpHandler(
         forceSecureNotification?: boolean;
       }) => {
         try {
+          const { apiKey, apiUser } = resolveCredentials({ apiKey: paramKey, apiUser: paramUser })
+          if (!apiKey || !apiUser) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
           if (!message || message.trim().length === 0) {
             throw new Error("Message content is required and cannot be empty")
           }
@@ -134,16 +161,21 @@ const handler = createMcpHandler(
       "check_email_status",
       "Check the delivery status of a previously sent email using its Source Tracking ID",
       {
-        apiKey: z.string(),
-        apiUser: z.string(),
+        apiKey: z.string().optional(),
+        apiUser: z.string().optional(),
         sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
       },
-      async ({ apiKey, apiUser, sourceTrackingId }: {
-        apiKey: string;
-        apiUser: string;
+      async ({ apiKey: paramKey, apiUser: paramUser, sourceTrackingId }: {
+        apiKey?: string;
+        apiUser?: string;
         sourceTrackingId: string;
       }) => {
         try {
+          const { apiKey, apiUser } = resolveCredentials({ apiKey: paramKey, apiUser: paramUser })
+          if (!apiKey || !apiUser) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
           if (!sourceTrackingId || sourceTrackingId.trim().length === 0) {
             throw new Error("Source Tracking ID is required")
           }
@@ -173,7 +205,17 @@ const handler = createMcpHandler(
     )
   },
   {},
-  { basePath: "/api" }
+  { basePath: "" }
 )
 
-export { handler as GET, handler as POST }
+export async function GET(req: Request) {
+  const apiKey = req.headers.get('x-paubox-api-key') ?? undefined
+  const apiUser = req.headers.get('x-paubox-api-user') ?? undefined
+  return credentialsStorage.run({ apiKey, apiUser }, () => mcpHandler(req))
+}
+
+export async function POST(req: Request) {
+  const apiKey = req.headers.get('x-paubox-api-key') ?? undefined
+  const apiUser = req.headers.get('x-paubox-api-user') ?? undefined
+  return credentialsStorage.run({ apiKey, apiUser }, () => mcpHandler(req))
+}

@@ -129,7 +129,7 @@ Available Paubox components include:
 {
   "mcpServers": {
     "paubox": {
-      "url": "https://mcp.paubox.com/api/mcp"
+      "url": "https://mcp.paubox.com/mcp"
     }
   }
 }
@@ -142,7 +142,7 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "paubox": {
-      "url": "https://mcp.paubox.com/api/mcp"
+      "url": "https://mcp.paubox.com/mcp"
     }
   }
 }
