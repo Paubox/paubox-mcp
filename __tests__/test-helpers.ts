@@ -22,7 +22,10 @@ export async function createTestServer(port: number = 3001): Promise<TestServer>
 }
 
 export async function closeTestServer(testServer: TestServer): Promise<void> {
-  if (testServer.server) {
+  if (testServer?.server) {
     await new Promise<void>((resolve) => testServer.server.close(() => resolve()));
+  }
+  if (testServer?.app && typeof testServer.app.close === 'function') {
+    await testServer.app.close();
   }
 } 

@@ -18,6 +18,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (app && typeof app.close === 'function') {
+    await app.close();
+  }
 });
 
 describe('Paubox MCP Server', () => {

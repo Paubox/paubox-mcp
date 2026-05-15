@@ -7,7 +7,7 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "test": "next build && NODE_OPTIONS=--experimental-vm-modules jest"
+    "test": "next build && NODE_OPTIONS=--experimental-vm-modules jest --forceExit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
