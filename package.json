@@ -5,9 +5,9 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "next lint",
+    "lint": "eslint .",
     "start": "next start",
-    "test": "next build && NODE_OPTIONS=--experimental-vm-modules jest"
+    "test": "next build && NODE_OPTIONS=--experimental-vm-modules jest --forceExit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -72,7 +72,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/supertest": "^7.2.0",
-    "eslint": "^10.3.0",
+    "eslint": "^9.0.0",
     "eslint-config-next": "16.2.4",
     "jest": "^30.3.0",
     "postcss": "^8.5.14",

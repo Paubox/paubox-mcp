@@ -18,6 +18,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (app && typeof app.close === 'function') {
+    await app.close();
+  }
 });
 
 describe('Paubox MCP Server', () => {
@@ -66,7 +69,7 @@ describe('Paubox MCP Server', () => {
           expect(Array.isArray(res.body.result.tools)).toBe(true);
 
           // Check for expected tools
-          const toolNames = res.body.result.tools.map((tool: any) => tool.name);
+          const toolNames = res.body.result.tools.map((tool: { name: string }) => tool.name);
           expect(toolNames).toContain('validate_credentials');
           expect(toolNames).toContain('send_secure_email');
           expect(toolNames).toContain('check_email_status');
