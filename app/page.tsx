@@ -2,8 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Mail, Shield, CheckCircle } from "lucide-react"
+import { Mail, Shield } from "lucide-react"
 import Image from "next/image"
 import { pauboxColors, pauboxTheme } from "@/lib/paubox-colors"
 import Script from "next/script"

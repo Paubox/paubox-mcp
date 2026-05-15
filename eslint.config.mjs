@@ -1,29 +1,24 @@
-import { createRequire } from 'module'
+import { defineConfig, globalIgnores } from 'eslint/config'
+import nextVitals from 'eslint-config-next/core-web-vitals'
+import nextTs from 'eslint-config-next/typescript'
 
-const require = createRequire(import.meta.url)
-const typescript = require('eslint-config-next/typescript')
-const nextPlugin = require('@next/eslint-plugin-next')
-
-export default [
-  ...typescript,
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
   {
-    plugins: { '@next/next': nextPlugin },
-    rules: {
-      ...nextPlugin.configs.recommended.rules,
-    },
-  },
-  {
-    // Allow require() in plain JS config files that cannot use ESM
-    files: ['*.js', '*.cjs'],
+    // Allow require() in plain JS config files that can't use ESM
+    files: ['**/*.{js,cjs}'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
-  {
-    ignores: [
-      '.next/**',
-      'node_modules/**',
-      'dist/**',
-    ],
-  },
-]
+  globalIgnores([
+    '.next/**',
+    'out/**',
+    'build/**',
+    'dist/**',
+    'next-env.d.ts',
+  ]),
+])
+
+export default eslintConfig

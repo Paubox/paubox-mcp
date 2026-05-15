@@ -5,7 +5,7 @@
 Always run the linter after editing any file:
 
 ```bash
-npm run lint
+pnpm lint
 ```
 
 Fix any errors before considering the task complete.
