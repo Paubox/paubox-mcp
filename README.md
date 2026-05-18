@@ -119,6 +119,19 @@ Available Paubox components include:
 
 ### Connecting to AI Assistants
 
+There are two ways to provide your Paubox API credentials:
+
+- **Claude Connectors (recommended)**: Enter credentials once when configuring the connector. They are forwarded automatically as request headers on every tool call — no need to include them in each prompt.
+- **Per-call parameters**: Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or clients that don't support connector-level auth.
+
+#### Claude.ai — Claude Connectors (recommended)
+
+1. Go to [claude.ai](https://claude.ai) and open **Settings → Integrations**
+2. Add a new connector with URL `https://mcp.paubox.com/mcp`
+3. When prompted for credentials, enter your Paubox API key and API user
+
+Claude will forward them as `x-paubox-api-key` and `x-paubox-api-user` headers on every request, so you never need to include credentials in your prompts.
+
 #### Claude Desktop
 
 1. Open Claude desktop and navigate to **Settings**
@@ -155,8 +168,8 @@ Add to `.cursor/mcp.json`:
 Validates your Paubox API credentials.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 
 **Example Usage:**
 \`\`\`
@@ -168,8 +181,8 @@ Validate my Paubox credentials with API key "pk_live_..." and API user "user@com
 Sends a secure email using your Paubox credentials.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 - `from`: Sender email address (string, required)
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
@@ -178,7 +191,12 @@ Sends a secure email using your Paubox credentials.
 - `bcc`: BCC recipients (array, optional)
 - `forceSecureNotification`: Force secure notification (boolean, optional)
 
-**Example Usage:**
+**Example Usage (credentials via connector):**
+\`\`\`
+Send a secure email from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
+\`\`\`
+
+**Example Usage (credentials as parameters):**
 \`\`\`
 Send a secure email using my API key "pk_live_..." and API user "user@company.com" from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
 \`\`\`
@@ -188,13 +206,13 @@ Send a secure email using my API key "pk_live_..." and API user "user@company.co
 Checks the delivery status of a sent email.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 - `sourceTrackingId`: Tracking ID from sent email (string, required)
 
 **Example Usage:**
 \`\`\`
-Check the status of email with tracking ID "abc123" using my API credentials
+Check the status of email with tracking ID "abc123"
 \`\`\`
 
 ## Security & Compliance

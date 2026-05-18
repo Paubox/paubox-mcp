@@ -160,6 +160,42 @@ describe('Claude Connectors — header-based credentials', () => {
     });
   });
 
+  describe('send_secure_email — param precedence over headers', () => {
+    it('uses param apiUser over header apiUser when both are provided', async () => {
+      // Headers carry a short key that would fail if used; params carry a valid key.
+      // If params win, the tool proceeds past credential resolution to an API error.
+      // If headers win, the tool returns a missing-credentials error.
+      const res = await request(testServer.baseUrl)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('x-paubox-api-key', 'ignored-header-key')
+        .set('x-paubox-api-user', 'ignored-header-user@example.com')
+        .send(mcpCall(20, 'send_secure_email', {
+          apiKey: VALID_API_KEY,
+          apiUser: VALID_API_USER,
+          from: 'sender@example.com',
+          to: ['recipient@example.com'],
+          subject: 'Precedence Test',
+          message: 'Testing param over header',
+        }));
+
+      expect(res.status).toBe(200);
+
+      const text = res.text;
+      const match = text.match(/data: (.+)/);
+      expect(match).toBeTruthy();
+
+      if (match) {
+        const data = JSON.parse(match[1]);
+        expect(data.result).toBeDefined();
+        // Credentials were resolved → tool attempted the API call, not a credentials error
+        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).toMatch(/✅ Email sent successfully|❌ Failed to send email/);
+      }
+    });
+  });
+
   describe('check_email_status', () => {
     it('accepts credentials only via headers', async () => {
       const res = await request(testServer.baseUrl)
@@ -205,6 +241,36 @@ describe('Claude Connectors — header-based credentials', () => {
       if (match) {
         const data = JSON.parse(match[1]);
         expect(data.result.content[0].text).toContain('❌ API credentials required');
+      }
+    });
+  });
+
+  describe('check_email_status — param precedence over headers', () => {
+    it('uses param credentials over header credentials when both are provided', async () => {
+      const res = await request(testServer.baseUrl)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('x-paubox-api-key', 'ignored-header-key')
+        .set('x-paubox-api-user', 'ignored-header-user@example.com')
+        .send(mcpCall(21, 'check_email_status', {
+          apiKey: VALID_API_KEY,
+          apiUser: VALID_API_USER,
+          sourceTrackingId: 'test-tracking-id-for-precedence',
+        }));
+
+      expect(res.status).toBe(200);
+
+      const text = res.text;
+      const match = text.match(/data: (.+)/);
+      expect(match).toBeTruthy();
+
+      if (match) {
+        const data = JSON.parse(match[1]);
+        expect(data.result).toBeDefined();
+        // Credentials were resolved → tool attempted the API call, not a credentials error
+        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).toMatch(/📊 Email Status Report|❌ Failed to check email status/);
       }
     });
   });

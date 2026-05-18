@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import pauboxNode from 'paubox-node'
+import { verifyAccessToken } from '../../lib/oauth-jwt'
 
 type PauboxMessage = {
   from: string;
@@ -208,14 +209,32 @@ const mcpHandler = createMcpHandler(
   { basePath: "" }
 )
 
+async function extractCredentials(req: Request): Promise<RequestCredentials> {
+  // Priority 1: x-paubox-* custom headers (Claude Connector header path)
+  const headerKey = req.headers.get('x-paubox-api-key') ?? undefined
+  const headerUser = req.headers.get('x-paubox-api-user') ?? undefined
+  if (headerKey && headerUser) return { apiKey: headerKey, apiUser: headerUser }
+
+  // Priority 2: Bearer token (OAuth flow)
+  const authHeader = req.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const payload = await verifyAccessToken(authHeader.slice(7))
+      return { apiKey: payload.apiKey, apiUser: payload.apiUser }
+    } catch {
+      // Invalid or expired token — fall through to empty credentials
+    }
+  }
+
+  return { apiKey: headerKey, apiUser: headerUser }
+}
+
 export async function GET(req: Request) {
-  const apiKey = req.headers.get('x-paubox-api-key') ?? undefined
-  const apiUser = req.headers.get('x-paubox-api-user') ?? undefined
-  return credentialsStorage.run({ apiKey, apiUser }, () => mcpHandler(req))
+  const credentials = await extractCredentials(req)
+  return credentialsStorage.run(credentials, () => mcpHandler(req))
 }
 
 export async function POST(req: Request) {
-  const apiKey = req.headers.get('x-paubox-api-key') ?? undefined
-  const apiUser = req.headers.get('x-paubox-api-user') ?? undefined
-  return credentialsStorage.run({ apiKey, apiUser }, () => mcpHandler(req))
+  const credentials = await extractCredentials(req)
+  return credentialsStorage.run(credentials, () => mcpHandler(req))
 }
