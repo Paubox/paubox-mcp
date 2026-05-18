@@ -121,20 +121,21 @@ Available Paubox components include:
 
 There are two ways to provide your Paubox API credentials:
 
-- **Claude Connectors (recommended)**: Enter credentials once when configuring the connector. They are forwarded automatically as request headers on every tool call — no need to include them in each prompt.
-- **Per-call parameters**: Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or clients that don't support connector-level auth.
+- **OAuth (recommended)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your credentials once — Claude stores a secure token and uses it on every future request.
+- **Per-call parameters**: Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or clients that don't support OAuth.
 
 #### Claude.ai — Claude Connectors (recommended)
 
 1. Go to [claude.ai](https://claude.ai) and open **Settings → Integrations**
-2. Add a new connector with URL `https://mcp.paubox.com/mcp`
-3. When prompted for credentials, enter your Paubox API key and API user
+2. Click **Add connector** and enter URL `https://mcp.paubox.com/mcp`
+3. A "Configure Paubox" form opens — enter your API username and API key
+4. Click **Save**
 
-Claude will forward them as `x-paubox-api-key` and `x-paubox-api-user` headers on every request, so you never need to include credentials in your prompts.
+Claude stores your credentials as a secure token in the system keychain and sends it automatically on every request. You never need to include credentials in your prompts.
 
 #### Claude Desktop
 
-1. Open Claude desktop and navigate to **Settings**
+1. Open Claude Desktop and navigate to **Settings**
 2. Under the **Developer** tab, tap **Edit Config**
 3. Add this configuration:
 
@@ -147,6 +148,8 @@ Claude will forward them as `x-paubox-api-key` and `x-paubox-api-user` headers o
   }
 }
 ```
+
+4. Save the file — Claude Desktop will open a browser window to the "Configure Paubox" form to collect your credentials.
 
 #### Cursor (for local testing)
 
@@ -227,6 +230,18 @@ Check the status of email with tracking ID "abc123"
 For technical support or API access questions, contact Paubox support at support@paubox.com.
 
 ## Development
+
+### Environment variables
+
+Copy `.env.example` to `.env.local` and fill in the required value:
+
+```bash
+cp .env.example .env.local
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes | Signing secret for OAuth tokens. Generate with: `openssl rand -base64 32` |
 
 ### Testing
 
