@@ -9,11 +9,11 @@ export interface TestServer {
 }
 
 export async function createTestServer(port: number = 3001): Promise<TestServer> {
-  const app = next({ dev: false, dir: process.cwd() });
+  const app = next({ dev: false, dir: process.cwd(), hostname: 'localhost', port });
   await app.prepare();
   const server = http.createServer((req, res) => app.getRequestHandler()(req, res));
   await new Promise<void>((resolve) => server.listen(port, () => resolve()));
-  
+
   return {
     server,
     app,
