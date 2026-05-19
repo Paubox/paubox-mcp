@@ -215,11 +215,13 @@ async function extractCredentials(req: Request): Promise<RequestCredentials> {
   const headerUser = req.headers.get('x-paubox-api-user') ?? undefined
   if (headerKey && headerUser) return { apiKey: headerKey, apiUser: headerUser }
 
-  // Priority 2: Bearer token (OAuth flow)
+  // Priority 2: Bearer token (OAuth flow). RFC 7235 §2.1 requires the
+  // scheme name be matched case-insensitively.
   const authHeader = req.headers.get('authorization')
-  if (authHeader?.startsWith('Bearer ')) {
+  const bearerMatch = authHeader ? /^Bearer\s+(.+)$/i.exec(authHeader) : null
+  if (bearerMatch) {
     try {
-      const payload = await verifyAccessToken(authHeader.slice(7))
+      const payload = await verifyAccessToken(bearerMatch[1])
       return { apiKey: payload.apiKey, apiUser: payload.apiUser }
     } catch {
       // Invalid or expired token — fall through to empty credentials

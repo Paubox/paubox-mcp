@@ -1,5 +1,5 @@
-import { randomUUID } from 'crypto'
-import { SignJWT, jwtVerify } from 'jose'
+import { createHash, randomBytes, randomUUID } from 'crypto'
+import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from 'jose'
 
 export interface AuthCodePayload {
   type: 'auth_code'
@@ -16,41 +16,61 @@ export interface AccessTokenPayload {
   apiUser: string
 }
 
-function getSecret(): Uint8Array {
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 // 1 hour
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
+const CONSUMED_CODE_TTL_SECONDS = 600 // 10 min (> auth code 5m exp + slack)
+
+function getSigningKey(): Uint8Array {
   const secret = process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET environment variable is not set')
   return new TextEncoder().encode(secret)
 }
 
+// A256GCM direct encryption requires a 32-byte key. Derive it from
+// JWT_SECRET via SHA-256 so the operator only needs one env var of any
+// length, and the encryption key is domain-separated from the signing key.
+function getEncryptionKey(): Uint8Array {
+  const secret = process.env.JWT_SECRET
+  if (!secret) throw new Error('JWT_SECRET environment variable is not set')
+  return createHash('sha256').update(`paubox-mcp-jwe:${secret}`).digest()
+}
+
+// Auth codes ride in the redirect URL (browser history, proxy logs).
+// Encrypt the payload (JWE) instead of just signing it (JWS) so the
+// apiKey/apiUser are not base64-decodable from a leaked URL.
 export async function signAuthCode(
   payload: Omit<AuthCodePayload, 'type' | 'jti'>
 ): Promise<string> {
-  return new SignJWT({ ...payload, type: 'auth_code' } as Record<string, unknown>)
-    .setProtectedHeader({ alg: 'HS256' })
+  return new EncryptJWT({ ...payload, type: 'auth_code' } as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime('5m')
-    .sign(getSecret())
-}
-
-export async function signAccessToken(
-  payload: Omit<AccessTokenPayload, 'type'>
-): Promise<string> {
-  return new SignJWT({ ...payload, type: 'access_token' } as Record<string, unknown>)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .sign(getSecret())
+    .encrypt(getEncryptionKey())
 }
 
 export async function verifyAuthCode(token: string): Promise<AuthCodePayload> {
-  const { payload } = await jwtVerify(token, getSecret())
+  const { payload } = await jwtDecrypt(token, getEncryptionKey())
   if (payload.type !== 'auth_code') throw new Error('Invalid token type')
   if (typeof payload.jti !== 'string' || !payload.jti) throw new Error('Missing jti')
   return payload as unknown as AuthCodePayload
 }
 
+export async function signAccessToken(
+  payload: Omit<AccessTokenPayload, 'type'>
+): Promise<string> {
+  // setJti ensures each issued token is byte-distinct even when minted
+  // in the same second with identical credentials (refresh rotation).
+  return new SignJWT({ ...payload, type: 'access_token' } as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setJti(randomUUID())
+    .setIssuedAt()
+    .setExpirationTime(`${ACCESS_TOKEN_TTL_SECONDS}s`)
+    .sign(getSigningKey())
+}
+
 export async function verifyAccessToken(token: string): Promise<AccessTokenPayload> {
-  const { payload } = await jwtVerify(token, getSecret())
+  const { payload } = await jwtVerify(token, getSigningKey())
   if (payload.type !== 'access_token') throw new Error('Invalid token type')
   return payload as unknown as AccessTokenPayload
 }
@@ -74,6 +94,49 @@ export function isAuthCodeConsumed(jti: string): boolean {
   return expiry !== undefined && expiry > now
 }
 
-export function markAuthCodeConsumed(jti: string, ttlSeconds = 600): void {
+export function markAuthCodeConsumed(jti: string, ttlSeconds = CONSUMED_CODE_TTL_SECONDS): void {
   consumedAuthCodes.set(jti, Date.now() + ttlSeconds * 1000)
+}
+
+// Refresh-token store. Tokens are opaque random strings (not JWTs) — they
+// are credentials, not assertions, and revocation requires server-side
+// state anyway. Same single-process caveat as consumedAuthCodes applies.
+interface RefreshTokenRecord {
+  apiKey: string
+  apiUser: string
+  expiresAt: number
+}
+
+const refreshTokens = new Map<string, RefreshTokenRecord>()
+
+function pruneRefreshTokens(now: number) {
+  for (const [token, rec] of refreshTokens) {
+    if (rec.expiresAt <= now) refreshTokens.delete(token)
+  }
+}
+
+export function issueRefreshToken(
+  apiKey: string,
+  apiUser: string,
+  ttlSeconds = REFRESH_TOKEN_TTL_SECONDS,
+): string {
+  const token = randomBytes(32).toString('base64url')
+  refreshTokens.set(token, {
+    apiKey,
+    apiUser,
+    expiresAt: Date.now() + ttlSeconds * 1000,
+  })
+  return token
+}
+
+// Consume rotates: the redeemed token is deleted so a replay returns null.
+// Caller issues a fresh refresh token alongside the new access token.
+export function consumeRefreshToken(token: string): { apiKey: string; apiUser: string } | null {
+  const now = Date.now()
+  pruneRefreshTokens(now)
+  const rec = refreshTokens.get(token)
+  if (!rec) return null
+  refreshTokens.delete(token)
+  if (rec.expiresAt <= now) return null
+  return { apiKey: rec.apiKey, apiUser: rec.apiUser }
 }

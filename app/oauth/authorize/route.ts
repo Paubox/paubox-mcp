@@ -198,7 +198,15 @@ function renderForm(p: FormParams): Response {
 </html>`
 
   return new Response(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // Clickjacking protection: the form collects API credentials, so it
+      // must not be framable by any origin. Both headers are sent for
+      // defense-in-depth across legacy and modern browsers.
+      'Content-Security-Policy': "frame-ancestors 'none'",
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+    },
   })
 }
 
@@ -226,7 +234,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData()
+  // request.formData() rejects with TypeError on a non-form Content-Type
+  // or a malformed multipart body. Without this guard the rejection
+  // bubbles up as a generic 500 + Sentry alert; the OAuth-correct
+  // response is `invalid_request`.
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    return new Response('invalid_request', { status: 400 })
+  }
 
   const clientId = formData.get('client_id')?.toString() ?? ''
   const redirectUri = formData.get('redirect_uri')?.toString() ?? ''

@@ -11,7 +11,13 @@ process.env.PAUBOX_API_USER = 'test-user'
 
 import { createHash } from 'crypto'
 import request from 'supertest'
-import { signAuthCode, signAccessToken, verifyAuthCode, verifyAccessToken } from '../lib/oauth-jwt'
+import {
+  ACCESS_TOKEN_TTL_SECONDS,
+  signAccessToken,
+  signAuthCode,
+  verifyAccessToken,
+  verifyAuthCode,
+} from '../lib/oauth-jwt'
 import { createTestServer, closeTestServer, TestServer } from './test-helpers'
 
 let testServer: TestServer
@@ -109,6 +115,7 @@ describe('GET /.well-known/oauth-authorization-server', () => {
     expect(body.grant_types_supported).toContain('authorization_code')
     expect(body.code_challenge_methods_supported).toContain('S256')
     expect(body.token_endpoint_auth_methods_supported).toContain('none')
+    expect(body.grant_types_supported).toContain('refresh_token')
   })
 })
 
@@ -290,7 +297,9 @@ describe('POST /oauth/token', () => {
     const body = JSON.parse(res.text)
     expect(body.access_token).toBeDefined()
     expect(body.token_type).toBe('bearer')
-    expect(body.expires_in).toBeUndefined()
+    expect(body.expires_in).toBe(ACCESS_TOKEN_TTL_SECONDS)
+    expect(body.refresh_token).toEqual(expect.any(String))
+    expect(body.refresh_token.length).toBeGreaterThan(20)
 
     const payload = await verifyAccessToken(body.access_token)
     expect(payload.apiKey).toBe('pk_test_valid_key_1234567890')
@@ -551,5 +560,199 @@ describe('MCP route — Bearer token credential resolution', () => {
       const data = JSON.parse(match[1])
       expect(data.result.content[0].text).toContain('❌ API credentials required')
     }
+  })
+
+  it('accepts a lowercase `bearer` scheme (RFC 7235 §2.1 case-insensitive match)', async () => {
+    const accessToken = await signAccessToken({
+      apiKey: 'pk_test_lowercase_bearer_1234567890',
+      apiUser: 'lowercase-bearer@example.com',
+    })
+
+    const res = await request(testServer.baseUrl)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Authorization', `bearer ${accessToken}`)
+      .send({
+        jsonrpc: '2.0', id: 99,
+        method: 'tools/call',
+        params: { name: 'validate_credentials', arguments: {} },
+      })
+
+    expect(res.status).toBe(200)
+    const match = res.text.match(/data: (.+)/)
+    expect(match).toBeTruthy()
+    if (match) {
+      const data = JSON.parse(match[1])
+      expect(data.result.content[0].text).toContain('lowercase-bearer@example.com')
+    }
+  })
+})
+
+// ─── Refresh-token grant ──────────────────────────────────────────────────────
+
+describe('POST /oauth/token — refresh_token grant', () => {
+  async function getInitialTokens(apiKey: string, apiUser: string) {
+    const authRes = await request(testServer.baseUrl)
+      .post('/oauth/authorize')
+      .type('form')
+      .send({
+        redirect_uri: LOCALHOST_REDIRECT,
+        state: 'state',
+        code_challenge: TEST_CODE_CHALLENGE,
+        code_challenge_method: 'S256',
+        response_type: 'code',
+        apiUser,
+        apiKey,
+      })
+    const code = new URL(authRes.headers['location'] as string).searchParams.get('code')!
+
+    const tokenRes = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: TEST_CODE_VERIFIER,
+        redirect_uri: LOCALHOST_REDIRECT,
+      })
+    return JSON.parse(tokenRes.text) as {
+      access_token: string
+      refresh_token: string
+      expires_in: number
+    }
+  }
+
+  it('exchanges a refresh_token for a new access_token and rotated refresh_token', async () => {
+    const initial = await getInitialTokens('pk_test_rt_1234567890', 'rt-user@example.com')
+
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'refresh_token',
+        refresh_token: initial.refresh_token,
+      })
+
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.text)
+    expect(body.access_token).toEqual(expect.any(String))
+    expect(body.access_token).not.toBe(initial.access_token)
+    expect(body.refresh_token).toEqual(expect.any(String))
+    expect(body.refresh_token).not.toBe(initial.refresh_token)
+    expect(body.expires_in).toBe(ACCESS_TOKEN_TTL_SECONDS)
+
+    const payload = await verifyAccessToken(body.access_token)
+    expect(payload.apiKey).toBe('pk_test_rt_1234567890')
+    expect(payload.apiUser).toBe('rt-user@example.com')
+  })
+
+  it('rejects a refresh_token that has already been used (rotation)', async () => {
+    const initial = await getInitialTokens('pk_test_rt_replay_1234567890', 'rt-replay@example.com')
+
+    const first = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token', refresh_token: initial.refresh_token })
+    expect(first.status).toBe(200)
+
+    const second = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token', refresh_token: initial.refresh_token })
+    expect(second.status).toBe(401)
+    expect(JSON.parse(second.text).error).toBe('invalid_grant')
+  })
+
+  it('rejects an unknown refresh_token', async () => {
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token', refresh_token: 'not-a-real-token' })
+
+    expect(res.status).toBe(401)
+    expect(JSON.parse(res.text).error).toBe('invalid_grant')
+  })
+
+  it('rejects refresh_token grant without a refresh_token parameter', async () => {
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token' })
+
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.text).error).toBe('invalid_request')
+  })
+})
+
+// ─── Access-token expiry ──────────────────────────────────────────────────────
+
+describe('signAccessToken', () => {
+  it('sets a finite exp claim (1h)', async () => {
+    const token = await signAccessToken({ apiKey: 'k', apiUser: 'u@example.com' })
+    // Decode the JWS payload directly — `exp` is reflected in the JWT
+    // payload as a UNIX timestamp.
+    const [, payload] = token.split('.')
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    expect(decoded.exp).toEqual(expect.any(Number))
+    expect(decoded.iat).toEqual(expect.any(Number))
+    expect(decoded.exp - decoded.iat).toBe(ACCESS_TOKEN_TTL_SECONDS)
+  })
+})
+
+// ─── Auth-code confidentiality (JWE) ──────────────────────────────────────────
+
+describe('signAuthCode — payload confidentiality', () => {
+  it('produces an opaque token; apiKey/apiUser are not base64-decodable from any segment', async () => {
+    const secretKey = 'pk_super_secret_must_not_leak_1234567890'
+    const secretUser = 'leak-canary@example.com'
+    const token = await signAuthCode({
+      apiKey: secretKey,
+      apiUser: secretUser,
+      codeChallenge: TEST_CODE_CHALLENGE,
+      redirectUri: LOCALHOST_REDIRECT,
+    })
+
+    // JWE compact serialization: header.encrypted_key.iv.ciphertext.tag
+    expect(token.split('.')).toHaveLength(5)
+
+    for (const segment of token.split('.')) {
+      if (!segment) continue
+      const decoded = Buffer.from(segment, 'base64url').toString('binary')
+      expect(decoded).not.toContain(secretKey)
+      expect(decoded).not.toContain(secretUser)
+    }
+  })
+})
+
+// ─── Anti-clickjacking on /oauth/authorize ────────────────────────────────────
+
+describe('GET /oauth/authorize — anti-clickjacking headers', () => {
+  it('sets X-Frame-Options: DENY and CSP frame-ancestors none', async () => {
+    const res = await request(testServer.baseUrl)
+      .get('/oauth/authorize')
+      .query({
+        response_type: 'code',
+        redirect_uri: LOCALHOST_REDIRECT,
+        code_challenge: TEST_CODE_CHALLENGE,
+        code_challenge_method: 'S256',
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.headers['x-frame-options']).toBe('DENY')
+    expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'")
+  })
+})
+
+// ─── Malformed POST body to /oauth/authorize ──────────────────────────────────
+
+describe('POST /oauth/authorize — robustness', () => {
+  it('returns 400 when the body cannot be parsed as form data', async () => {
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/authorize')
+      .set('Content-Type', 'application/json')
+      .send('{"not":"form-encoded"}')
+
+    expect(res.status).toBe(400)
   })
 })
