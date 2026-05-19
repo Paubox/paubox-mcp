@@ -25,9 +25,13 @@ function escapeHtml(str: string): string {
 }
 
 function escapeJs(str: string): string {
+  // `<` is escaped to prevent `</script>` from terminating the inline script
+  // block — the HTML tokenizer ends a <script> element at the first literal
+  // `</script>` regardless of JavaScript string context.
   return str
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
+    .replace(/</g, '\\u003C')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
 }

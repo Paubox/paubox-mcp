@@ -377,6 +377,101 @@ describe('POST /oauth/token', () => {
     expect(res.status).toBe(400)
     expect(JSON.parse(res.text).error).toBe('invalid_request')
   })
+
+  it('rejects an authorization code that has already been redeemed (single-use)', async () => {
+    const code = await getCode('pk_test_replay_key_1234567890', 'replay-user@example.com')
+
+    const first = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: TEST_CODE_VERIFIER,
+        redirect_uri: LOCALHOST_REDIRECT,
+      })
+
+    expect(first.status).toBe(200)
+
+    const second = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: TEST_CODE_VERIFIER,
+        redirect_uri: LOCALHOST_REDIRECT,
+      })
+
+    expect(second.status).toBe(401)
+    expect(JSON.parse(second.text).error).toBe('invalid_grant')
+    expect(JSON.parse(second.text).error_description).toMatch(/already been used/i)
+  })
+
+  it('sets Cache-Control: no-store and Pragma: no-cache on success responses', async () => {
+    const code = await getCode('pk_test_cache_key_1234567890', 'cache-user@example.com')
+
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: TEST_CODE_VERIFIER,
+        redirect_uri: LOCALHOST_REDIRECT,
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.headers['cache-control']).toBe('no-store')
+    expect(res.headers['pragma']).toBe('no-cache')
+  })
+
+  it('sets Cache-Control: no-store and Pragma: no-cache on error responses', async () => {
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'authorization_code',
+        code: 'not.a.valid.jwt',
+        code_verifier: TEST_CODE_VERIFIER,
+        redirect_uri: LOCALHOST_REDIRECT,
+      })
+
+    expect(res.status).toBe(401)
+    expect(res.headers['cache-control']).toBe('no-store')
+    expect(res.headers['pragma']).toBe('no-cache')
+  })
+})
+
+// ─── XSS protection in /oauth/authorize ───────────────────────────────────────
+
+describe('GET /oauth/authorize — XSS protection', () => {
+  it('escapes `</script>` in reflected `state` so it cannot break out of the inline script', async () => {
+    const malicious = `</script><script>window.__pwned=1</script>`
+
+    const res = await request(testServer.baseUrl)
+      .get('/oauth/authorize')
+      .query({
+        response_type: 'code',
+        redirect_uri: LOCALHOST_REDIRECT,
+        state: malicious,
+        code_challenge: TEST_CODE_CHALLENGE,
+        code_challenge_method: 'S256',
+      })
+
+    expect(res.status).toBe(200)
+    // Literal `</script>` must not appear inside the rendered <script> block
+    // before its legitimate closing tag — if it did, a real browser would
+    // terminate the first <script> early and parse the attacker payload as
+    // new HTML.
+    const firstScriptOpen = res.text.indexOf('<script>')
+    const firstScriptClose = res.text.indexOf('</script>', firstScriptOpen)
+    const innerScript = res.text.slice(firstScriptOpen + '<script>'.length, firstScriptClose)
+    expect(innerScript).not.toContain('</script>')
+    // The escaped form should appear instead (only `<` is encoded — `>` is
+    // unaffected, since the `</script>` breakout depends solely on `<`).
+    expect(innerScript).toContain('\\u003C/script>')
+  })
 })
 
 // ─── MCP route — Bearer token path ────────────────────────────────────────────
