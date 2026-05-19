@@ -10,6 +10,7 @@ process.env.PAUBOX_API_KEY = 'test-key'
 process.env.PAUBOX_API_USER = 'test-user'
 
 import { createHash } from 'crypto'
+import { jwtDecrypt } from 'jose'
 import request from 'supertest'
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -690,17 +691,20 @@ describe('POST /oauth/token — refresh_token grant', () => {
 describe('signAccessToken', () => {
   it('sets a finite exp claim (1h)', async () => {
     const token = await signAccessToken({ apiKey: 'k', apiUser: 'u@example.com' })
-    // Decode the JWS payload directly — `exp` is reflected in the JWT
-    // payload as a UNIX timestamp.
-    const [, payload] = token.split('.')
-    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-    expect(decoded.exp).toEqual(expect.any(Number))
-    expect(decoded.iat).toEqual(expect.any(Number))
-    expect(decoded.exp - decoded.iat).toBe(ACCESS_TOKEN_TTL_SECONDS)
+    // Token is now a JWE — decrypt with the same scheme `getEncryptionKey`
+    // uses so the test reads `exp`/`iat` without relying on JWS layout.
+    const key = createHash('sha256').update(`paubox-mcp-jwe:${process.env.JWT_SECRET}`).digest()
+    const { payload } = await jwtDecrypt(token, key, {
+      keyManagementAlgorithms: ['dir'],
+      contentEncryptionAlgorithms: ['A256GCM'],
+    })
+    expect(payload.exp).toEqual(expect.any(Number))
+    expect(payload.iat).toEqual(expect.any(Number))
+    expect((payload.exp as number) - (payload.iat as number)).toBe(ACCESS_TOKEN_TTL_SECONDS)
   })
 })
 
-// ─── Auth-code confidentiality (JWE) ──────────────────────────────────────────
+// ─── Token-payload confidentiality (JWE) ──────────────────────────────────────
 
 describe('signAuthCode — payload confidentiality', () => {
   it('produces an opaque token; apiKey/apiUser are not base64-decodable from any segment', async () => {
@@ -714,6 +718,23 @@ describe('signAuthCode — payload confidentiality', () => {
     })
 
     // JWE compact serialization: header.encrypted_key.iv.ciphertext.tag
+    expect(token.split('.')).toHaveLength(5)
+
+    for (const segment of token.split('.')) {
+      if (!segment) continue
+      const decoded = Buffer.from(segment, 'base64url').toString('binary')
+      expect(decoded).not.toContain(secretKey)
+      expect(decoded).not.toContain(secretUser)
+    }
+  })
+})
+
+describe('signAccessToken — payload confidentiality', () => {
+  it('produces an opaque token; apiKey/apiUser are not base64-decodable from any segment', async () => {
+    const secretKey = 'pk_super_secret_must_not_leak_in_access_token'
+    const secretUser = 'access-leak-canary@example.com'
+    const token = await signAccessToken({ apiKey: secretKey, apiUser: secretUser })
+
     expect(token.split('.')).toHaveLength(5)
 
     for (const segment of token.split('.')) {

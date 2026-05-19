@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'crypto'
-import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from 'jose'
+import { EncryptJWT, jwtDecrypt } from 'jose'
 
 export interface AuthCodePayload {
   type: 'auth_code'
@@ -20,29 +20,24 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 // 1 hour
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 const CONSUMED_CODE_TTL_SECONDS = 600 // 10 min (> auth code 5m exp + slack)
 
-// HS256 requires a key ≥ 256 bits (RFC 7518 §3.2). jose accepts a short
-// Uint8Array silently, so enforce the floor here. `.env.example` documents
-// the 32-character minimum; this turns that contract into a hard error.
-const MIN_SIGNING_KEY_BYTES = 32
-
-function getSigningKey(): Uint8Array {
-  const secret = process.env.JWT_SECRET
-  if (!secret) throw new Error('JWT_SECRET environment variable is not set')
-  const key = new TextEncoder().encode(secret)
-  if (key.length < MIN_SIGNING_KEY_BYTES) {
-    throw new Error(
-      `JWT_SECRET must be at least ${MIN_SIGNING_KEY_BYTES} bytes (256 bits) for HS256`,
-    )
-  }
-  return key
-}
+// SHA-256 always emits 32 bytes, so jose's A256GCM key-length requirement
+// is satisfied for any non-empty JWT_SECRET — but operator entropy is the
+// real bottleneck. `.env.example` documents the 32-char minimum; enforce
+// it as a hard error so a misconfigured secret manager doesn't silently
+// produce a brute-forceable secret.
+const MIN_SECRET_BYTES = 32
 
 // A256GCM direct encryption requires a 32-byte key. Derive it from
-// JWT_SECRET via SHA-256 so the operator only needs one env var of any
-// length, and the encryption key is domain-separated from the signing key.
+// JWT_SECRET via SHA-256 so any operator-supplied length still produces
+// a properly sized key, with domain separation from any future use.
 function getEncryptionKey(): Uint8Array {
   const secret = process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET environment variable is not set')
+  if (Buffer.byteLength(secret, 'utf8') < MIN_SECRET_BYTES) {
+    throw new Error(
+      `JWT_SECRET must be at least ${MIN_SECRET_BYTES} bytes (256 bits)`,
+    )
+  }
   return createHash('sha256').update(`paubox-mcp-jwe:${secret}`).digest()
 }
 
@@ -72,21 +67,26 @@ export async function verifyAuthCode(token: string): Promise<AuthCodePayload> {
   return payload as unknown as AuthCodePayload
 }
 
+// Access tokens are encrypted (JWE) rather than signed (JWS) so the
+// apiKey/apiUser are not base64-decodable from a leaked Bearer header
+// (Sentry capture, HAR exports, MCP client debug logs, etc.). The 1h
+// `exp` bounds the JWT itself; encryption bounds the embedded credential.
 export async function signAccessToken(
   payload: Omit<AccessTokenPayload, 'type'>
 ): Promise<string> {
-  // setJti ensures each issued token is byte-distinct even when minted
-  // in the same second with identical credentials (refresh rotation).
-  return new SignJWT({ ...payload, type: 'access_token' } as Record<string, unknown>)
-    .setProtectedHeader({ alg: 'HS256' })
+  return new EncryptJWT({ ...payload, type: 'access_token' } as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(`${ACCESS_TOKEN_TTL_SECONDS}s`)
-    .sign(getSigningKey())
+    .encrypt(getEncryptionKey())
 }
 
 export async function verifyAccessToken(token: string): Promise<AccessTokenPayload> {
-  const { payload } = await jwtVerify(token, getSigningKey(), { algorithms: ['HS256'] })
+  const { payload } = await jwtDecrypt(token, getEncryptionKey(), {
+    keyManagementAlgorithms: ['dir'],
+    contentEncryptionAlgorithms: ['A256GCM'],
+  })
   if (payload.type !== 'access_token') throw new Error('Invalid token type')
   return payload as unknown as AccessTokenPayload
 }
