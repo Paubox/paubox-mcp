@@ -20,10 +20,21 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 // 1 hour
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 const CONSUMED_CODE_TTL_SECONDS = 600 // 10 min (> auth code 5m exp + slack)
 
+// HS256 requires a key ≥ 256 bits (RFC 7518 §3.2). jose accepts a short
+// Uint8Array silently, so enforce the floor here. `.env.example` documents
+// the 32-character minimum; this turns that contract into a hard error.
+const MIN_SIGNING_KEY_BYTES = 32
+
 function getSigningKey(): Uint8Array {
   const secret = process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET environment variable is not set')
-  return new TextEncoder().encode(secret)
+  const key = new TextEncoder().encode(secret)
+  if (key.length < MIN_SIGNING_KEY_BYTES) {
+    throw new Error(
+      `JWT_SECRET must be at least ${MIN_SIGNING_KEY_BYTES} bytes (256 bits) for HS256`,
+    )
+  }
+  return key
 }
 
 // A256GCM direct encryption requires a 32-byte key. Derive it from
@@ -50,7 +61,12 @@ export async function signAuthCode(
 }
 
 export async function verifyAuthCode(token: string): Promise<AuthCodePayload> {
-  const { payload } = await jwtDecrypt(token, getEncryptionKey())
+  // Pin algorithms (RFC 8725 §3.1) so the verifier never broadens its
+  // accepted set if jose defaults change or getEncryptionKey is refactored.
+  const { payload } = await jwtDecrypt(token, getEncryptionKey(), {
+    keyManagementAlgorithms: ['dir'],
+    contentEncryptionAlgorithms: ['A256GCM'],
+  })
   if (payload.type !== 'auth_code') throw new Error('Invalid token type')
   if (typeof payload.jti !== 'string' || !payload.jti) throw new Error('Missing jti')
   return payload as unknown as AuthCodePayload
@@ -70,7 +86,7 @@ export async function signAccessToken(
 }
 
 export async function verifyAccessToken(token: string): Promise<AccessTokenPayload> {
-  const { payload } = await jwtVerify(token, getSigningKey())
+  const { payload } = await jwtVerify(token, getSigningKey(), { algorithms: ['HS256'] })
   if (payload.type !== 'access_token') throw new Error('Invalid token type')
   return payload as unknown as AccessTokenPayload
 }
@@ -132,11 +148,9 @@ export function issueRefreshToken(
 // Consume rotates: the redeemed token is deleted so a replay returns null.
 // Caller issues a fresh refresh token alongside the new access token.
 export function consumeRefreshToken(token: string): { apiKey: string; apiUser: string } | null {
-  const now = Date.now()
-  pruneRefreshTokens(now)
+  pruneRefreshTokens(Date.now())
   const rec = refreshTokens.get(token)
   if (!rec) return null
   refreshTokens.delete(token)
-  if (rec.expiresAt <= now) return null
   return { apiKey: rec.apiKey, apiUser: rec.apiUser }
 }

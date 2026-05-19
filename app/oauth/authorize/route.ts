@@ -215,6 +215,8 @@ export async function GET(request: NextRequest) {
 
   const redirectUri = searchParams.get('redirect_uri') ?? ''
   const responseType = searchParams.get('response_type') ?? ''
+  const codeChallenge = searchParams.get('code_challenge') ?? ''
+  const codeChallengeMethod = searchParams.get('code_challenge_method') ?? 'S256'
 
   if (responseType !== 'code') {
     return new Response('unsupported_response_type', { status: 400 })
@@ -222,13 +224,19 @@ export async function GET(request: NextRequest) {
   if (!isValidRedirectUri(redirectUri)) {
     return new Response('invalid_redirect_uri', { status: 400 })
   }
+  // PKCE is mandatory (OAuth 2.1 §4.1.1) and the discovery metadata only
+  // advertises S256. Reject here so non-spec clients see the failure at
+  // the authorize step instead of a confusing PKCE error at token redemption.
+  if (!codeChallenge || codeChallengeMethod !== 'S256') {
+    return new Response('invalid_request', { status: 400 })
+  }
 
   return renderForm({
     clientId: searchParams.get('client_id') ?? '',
     redirectUri,
     state: searchParams.get('state') ?? '',
-    codeChallenge: searchParams.get('code_challenge') ?? '',
-    codeChallengeMethod: searchParams.get('code_challenge_method') ?? 'S256',
+    codeChallenge,
+    codeChallengeMethod,
     responseType,
   })
 }
@@ -256,6 +264,11 @@ export async function POST(request: NextRequest) {
 
   if (!isValidRedirectUri(redirectUri)) {
     return new Response('invalid_redirect_uri', { status: 400 })
+  }
+  // Mirror the GET-side PKCE check so a tampered/no-PKCE form post also
+  // fails at the authorize step rather than minting an unredeemable code.
+  if (!codeChallenge || codeChallengeMethod !== 'S256') {
+    return new Response('invalid_request', { status: 400 })
   }
 
   if (!apiKey || !apiUser) {
