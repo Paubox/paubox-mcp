@@ -25,7 +25,7 @@ pnpm dev
 
 ## Architecture notes
 
-- **MCP tools**: `app/[transport]/route.ts` — three tools (`validate_credentials`, `send_secure_email`, `check_email_status`)
+- **MCP tools**: `app/[transport]/route.ts` — five tools (`validate_credentials`, `send_secure_email`, `check_email_status`, `get_form`, `submit_form`)
 - **OAuth endpoints**: `app/oauth/authorize/route.ts` and `app/oauth/token/route.ts` — implement OAuth 2.1 + PKCE so Claude shows a credential form when the connector is added
 - **Discovery**: `app/.well-known/oauth-authorization-server/route.ts` and `app/.well-known/oauth-protected-resource/route.ts`
 - **JWT helpers**: `lib/oauth-jwt.ts` — sign/verify auth codes and access tokens using `jose`

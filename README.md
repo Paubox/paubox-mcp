@@ -4,12 +4,14 @@ This is the official Model Context Protocol (MCP) server for Paubox Email API, d
 
 ## Overview
 
-This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API. Users provide their API credentials per session, ensuring security and multi-tenant support.
+This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API and to retrieve and submit Paubox Forms. Users provide their API credentials per session, ensuring security and multi-tenant support.
 
 ## Features
 
 - Send secure emails with optional encryption
 - Check email delivery status
+- Retrieve Paubox Form metadata and field schemas
+- Submit Paubox Form responses (with optional file attachments)
 - HIPAA-compliant communication
 - Easy integration with AI assistants that support MCP
 - Paubox-branded UI with official components and styling
@@ -216,6 +218,34 @@ Checks the delivery status of a sent email.
 **Example Usage:**
 \`\`\`
 Check the status of email with tracking ID "abc123"
+\`\`\`
+
+### get_form
+
+Retrieves metadata and the field schema for a Paubox Form. No API credentials required.
+
+**Parameters:**
+- `formId`: UUID of the Paubox Form (string, required)
+
+**Returns:** id, title, description, field definitions (`form_json`), active status, signable flag, submission count, and timestamps.
+
+**Example Usage:**
+\`\`\`
+Get the form schema for Paubox form "550e8400-e29b-41d4-a716-446655440000"
+\`\`\`
+
+### submit_form
+
+Submits a response to a Paubox Form. No API credentials required.
+
+**Parameters:**
+- `formId`: UUID of the Paubox Form (string, required)
+- `formData`: Key-value pairs matching the form's field schema (object, required)
+- `attachments`: Optional file attachments (array of `{ name, content }` where `content` is base64-encoded)
+
+**Example Usage:**
+\`\`\`
+Submit form "550e8400-e29b-41d4-a716-446655440000" with first_name "Jane", last_name "Smith", and email "jane@example.com"
 \`\`\`
 
 ## Security & Compliance
