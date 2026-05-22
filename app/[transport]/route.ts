@@ -2,7 +2,10 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import pauboxNode from 'paubox-node'
+import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
+
+const FORMS_BASE_URL = 'https://apx.paubox.com/forms'
 
 type PauboxMessage = {
   from: string;
@@ -198,6 +201,99 @@ const mcpHandler = createMcpHandler(
               {
                 type: "text",
                 text: `❌ Failed to check email status: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+    server.tool(
+      "get_form",
+      "Retrieve metadata and field schema for a Paubox Form by its UUID. Returns the form title, description, field definitions (form_json), and status. No API credentials required.",
+      {
+        formId: z.string().min(1, "Form ID is required"),
+      },
+      async ({ formId }: { formId: string }) => {
+        try {
+          if (!formId || formId.trim().length === 0) {
+            throw new Error("Form ID is required")
+          }
+          const response = await axios.get(`${FORMS_BASE_URL}/public/form_data/${formId.trim()}`)
+          const form = response.data
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: form.id,
+                  title: form.title,
+                  description: form.description,
+                  form_json: form.form_json,
+                  active: form.active,
+                  signable: form.signable,
+                  submission_count: form.submission_count,
+                  created_at: form.created_at,
+                  updated_at: form.updated_at,
+                }, null, 2),
+              },
+            ],
+          }
+        } catch (error) {
+          if (axios.isAxiosError(error) && error.response?.status === 404) {
+            return { content: [{ type: "text", text: "Form not found." }] }
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: `❌ Failed to retrieve form: ${error instanceof Error ? error.message : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+
+    server.tool(
+      "submit_form",
+      "Submit a response to a Paubox Form. Provide the form UUID and key-value pairs matching the form's field schema (obtainable via get_form). Optionally include file attachments as base64-encoded content. No API credentials required.",
+      {
+        formId: z.string().min(1, "Form ID is required"),
+        formData: z.record(z.string(), z.unknown()).describe("Key-value pairs matching the form field schema"),
+        attachments: z.array(z.object({
+          name: z.string().describe("Filename"),
+          content: z.string().describe("Base64-encoded file content"),
+        })).optional().describe("Optional file attachments"),
+      },
+      async ({ formId, formData, attachments }: {
+        formId: string;
+        formData: Record<string, unknown>;
+        attachments?: Array<{ name: string; content: string }>;
+      }) => {
+        try {
+          if (!formId || formId.trim().length === 0) {
+            throw new Error("Form ID is required")
+          }
+          const body: Record<string, unknown> = { form_data: formData }
+          if (attachments && attachments.length > 0) {
+            body.attachments = attachments
+          }
+          await axios.post(`${FORMS_BASE_URL}/api/forms/${formId.trim()}/submissions`, body)
+          return { content: [{ type: "text", text: "✅ Form submitted successfully." }] }
+        } catch (error) {
+          if (axios.isAxiosError(error)) {
+            if (error.response?.status === 404) {
+              return { content: [{ type: "text", text: "Form not found." }] }
+            }
+            if (error.response?.status === 400) {
+              return { content: [{ type: "text", text: "❌ Bad request: missing required form_data." }] }
+            }
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: `❌ Failed to submit form: ${error instanceof Error ? error.message : 'Unknown error occurred'}`,
               },
             ],
           }
