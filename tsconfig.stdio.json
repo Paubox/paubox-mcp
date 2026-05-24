@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "types": ["node"]
+  },
+  "include": ["src/stdio.ts", "src/paubox-node.d.ts"],
+  "exclude": ["node_modules"]
+}
