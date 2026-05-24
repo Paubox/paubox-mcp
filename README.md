@@ -126,6 +126,19 @@ There are three ways to provide your Paubox API credentials, in resolution prior
 
 Claude stores your credentials as a secure token in the system keychain and sends it automatically on every request. You never need to include credentials in your prompts.
 
+#### Claude Code
+
+Install once with your API credentials — no credential prompts afterward:
+
+```bash
+claude mcp add paubox \
+  -e PAUBOX_API_KEY=your_api_key \
+  -e PAUBOX_API_USER=your_api_user \
+  -- npx @paubox/mcp@latest
+```
+
+Claude Code spawns the package locally and injects the credentials as environment variables. All three tools (`validate_credentials`, `send_secure_email`, `check_email_status`) work without passing credentials in each call.
+
 #### Claude Desktop
 
 1. Open Claude Desktop and navigate to **Settings**
@@ -159,13 +172,15 @@ Add to `.cursor/mcp.json`:
 
 ## Available Tools
 
+> **Note:** When connecting via the `@paubox/mcp` npm package (Claude Code / stdio), credentials come from environment variables set at install time — `apiKey` and `apiUser` are not required in any tool call. When connecting via the hosted HTTP server (`https://mcp.paubox.com/mcp`), credentials are resolved from OAuth token, `x-paubox-*` headers, or tool parameters.
+
 ### validate_credentials
 
-Validates your Paubox API credentials.
+Confirms that Paubox API credentials are present and correctly formatted.
 
-**Parameters:**
-- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
-- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
+**Parameters (HTTP / hosted server only):**
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers or OAuth)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers or OAuth)
 
 **Example Usage:**
 \`\`\`
@@ -177,8 +192,8 @@ Validate my Paubox credentials with API key "pk_live_..." and API user "user@com
 Sends a secure email using your Paubox credentials.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
-- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
+- `apiKey`: Your Paubox API key (string, optional — HTTP/hosted server only)
+- `apiUser`: Your Paubox API user (string, optional — HTTP/hosted server only)
 - `from`: Sender email address (string, required)
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
@@ -202,8 +217,8 @@ Send a secure email using my API key "pk_live_..." and API user "user@company.co
 Checks the delivery status of a sent email.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
-- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
+- `apiKey`: Your Paubox API key (string, optional — HTTP/hosted server only)
+- `apiUser`: Your Paubox API user (string, optional — HTTP/hosted server only)
 - `sourceTrackingId`: Tracking ID from sent email (string, required)
 
 **Example Usage:**
