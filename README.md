@@ -19,19 +19,9 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 
 ## For Paubox Customers
 
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-3. Set up environment variables:
-   - `PAUBOX_API_KEY`: Your Paubox API key
-   - `PAUBOX_API_USER`: Your Paubox API user/username
+You don't host or clone anything to use Paubox MCP — Paubox runs the server at `https://mcp.paubox.com/mcp`. Add it as a connector in your AI client and enter your Paubox API credentials in the connector configuration form when prompted. See [Connecting to AI Assistants](#connecting-to-ai-assistants) below for client-specific setup.
 
-4. Run the development server:
-   ```bash
-   pnpm dev
-   ```
+The rest of this README covers self-hosting and local development.
 
 ## Proxy Configuration (Development/Testing)
 
@@ -121,10 +111,11 @@ Available Paubox components include:
 
 ### Connecting to AI Assistants
 
-There are two ways to provide your Paubox API credentials:
+There are three ways to provide your Paubox API credentials, in resolution priority order:
 
-- **OAuth (recommended)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your credentials once — Claude stores a secure token and uses it on every future request.
-- **Per-call parameters**: Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or clients that don't support OAuth.
+- **Per-call tool parameters** (highest priority): Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or scripted clients.
+- **Custom connector headers**: Set `x-paubox-api-key` and `x-paubox-api-user` as custom request headers on the connector. Some MCP clients expose this in Advanced Settings when adding a custom connector.
+- **OAuth (recommended for Claude.ai and Claude Desktop)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your credentials once — the client stores a short-lived encrypted Bearer token and sends it on every future request. Credentials are validated against the Paubox API at the moment you submit the form, so typos or expired keys are caught immediately.
 
 #### Claude.ai — Claude Connectors (recommended)
 
@@ -272,6 +263,8 @@ cp .env.example .env.local
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `JWT_SECRET` | Yes | Signing secret for OAuth tokens. Generate with: `openssl rand -base64 32` |
+| `PAUBOX_API_KEY` | No | Local-dev fallback. Honored only when `NODE_ENV !== 'production'` and no OAuth token / `x-paubox-*` headers / tool parameters are present. Deliberately ignored in production to prevent cross-user credential bleed. |
+| `PAUBOX_API_USER` | No | Local-dev fallback (same semantics as `PAUBOX_API_KEY`). |
 
 ### Testing
 

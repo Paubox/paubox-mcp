@@ -4,6 +4,7 @@ import { createMcpHandler } from "mcp-handler"
 import pauboxNode from 'paubox-node'
 import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
+import { checkPauboxCredentials } from '../../lib/paubox-credentials'
 
 const FORMS_BASE_URL = 'https://apx.paubox.com/forms'
 
@@ -45,7 +46,7 @@ function resolveCredentials(params: { apiKey?: string; apiUser?: string }) {
   }
 }
 
-const MISSING_CREDENTIALS_ERROR = "❌ API credentials required. Provide apiKey and apiUser as tool parameters, or configure them via connector headers (x-paubox-api-key, x-paubox-api-user)."
+const MISSING_CREDENTIALS_ERROR = "❌ API credentials required. Reconnect the Paubox connector in your client (Claude → Settings → Integrations → Paubox) to re-enter your credentials, or pass apiKey and apiUser as tool parameters, or set the x-paubox-api-key / x-paubox-api-user headers."
 
 const mcpHandler = createMcpHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,6 +69,14 @@ const mcpHandler = createMcpHandler(
           }
           if (apiUser.trim().length === 0) {
             throw new Error("API user is required")
+          }
+          const result = await checkPauboxCredentials(apiKey, apiUser)
+          if (!result.ok) {
+            return {
+              content: [
+                { type: "text", text: `❌ Credential validation failed: ${result.reason}` },
+              ],
+            }
           }
           return {
             content: [
@@ -305,11 +314,17 @@ const mcpHandler = createMcpHandler(
   { basePath: "" }
 )
 
-async function extractCredentials(req: Request): Promise<RequestCredentials> {
+type ExtractedCredentials =
+  | { kind: 'ok'; creds: RequestCredentials }
+  | { kind: 'invalid_token'; description: string }
+
+async function extractCredentials(req: Request): Promise<ExtractedCredentials> {
   // Priority 1: x-paubox-* custom headers (Claude Connector header path)
   const headerKey = req.headers.get('x-paubox-api-key') ?? undefined
   const headerUser = req.headers.get('x-paubox-api-user') ?? undefined
-  if (headerKey && headerUser) return { apiKey: headerKey, apiUser: headerUser }
+  if (headerKey && headerUser) {
+    return { kind: 'ok', creds: { apiKey: headerKey, apiUser: headerUser } }
+  }
 
   // Priority 2: Bearer token (OAuth flow). RFC 7235 §2.1 requires the
   // scheme name be matched case-insensitively.
@@ -318,21 +333,60 @@ async function extractCredentials(req: Request): Promise<RequestCredentials> {
   if (bearerMatch) {
     try {
       const payload = await verifyAccessToken(bearerMatch[1])
-      return { apiKey: payload.apiKey, apiUser: payload.apiUser }
+      return { kind: 'ok', creds: { apiKey: payload.apiKey, apiUser: payload.apiUser } }
     } catch {
-      // Invalid or expired token — fall through to empty credentials
+      // A Bearer token WAS presented but failed verification (expired,
+      // tampered, wrong signing key). RFC 6750 §3.1 calls for 401 with
+      // WWW-Authenticate so the client re-runs OAuth instead of seeing
+      // a confusing "credentials required" tool error.
+      return { kind: 'invalid_token', description: 'The access token expired or is invalid.' }
     }
   }
 
-  return { apiKey: headerKey, apiUser: headerUser }
+  // Priority 3: NODE_ENV-gated env-var fallback. Local-dev convenience
+  // only — production is multi-tenant and must not silently borrow one
+  // operator's identity for an unauthenticated caller.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.PAUBOX_API_KEY &&
+    process.env.PAUBOX_API_USER
+  ) {
+    return {
+      kind: 'ok',
+      creds: {
+        apiKey: process.env.PAUBOX_API_KEY,
+        apiUser: process.env.PAUBOX_API_USER,
+      },
+    }
+  }
+
+  // No auth attempted. Let the handler run; the tool surfaces a
+  // missing-credentials message instead of a transport-level 401, which
+  // matches how non-OAuth clients (tool-param-only callers) work today.
+  return { kind: 'ok', creds: { apiKey: headerKey, apiUser: headerUser } }
+}
+
+function invalidTokenResponse(description: string): Response {
+  return new Response(
+    JSON.stringify({ error: 'invalid_token', error_description: description }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': `Bearer error="invalid_token", error_description="${description}"`,
+      },
+    }
+  )
 }
 
 export async function GET(req: Request) {
-  const credentials = await extractCredentials(req)
-  return credentialsStorage.run(credentials, () => mcpHandler(req))
+  const result = await extractCredentials(req)
+  if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
+  return credentialsStorage.run(result.creds, () => mcpHandler(req))
 }
 
 export async function POST(req: Request) {
-  const credentials = await extractCredentials(req)
-  return credentialsStorage.run(credentials, () => mcpHandler(req))
+  const result = await extractCredentials(req)
+  if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
+  return credentialsStorage.run(result.creds, () => mcpHandler(req))
 }

@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { signAuthCode } from '../../../lib/oauth-jwt'
+import { checkPauboxCredentials } from '../../../lib/paubox-credentials'
 
 function isValidRedirectUri(uri: string): boolean {
   try {
@@ -275,6 +276,17 @@ export async function POST(request: NextRequest) {
     return renderForm({
       clientId, redirectUri, state, codeChallenge, codeChallengeMethod, responseType,
       error: 'Both API Username and API Key are required.',
+    })
+  }
+
+  // Fail fast on typos / expired keys. A Paubox outage or 5xx soft-passes
+  // here (see checkPauboxCredentials) so a backend incident doesn't block
+  // all new connector adds.
+  const credCheck = await checkPauboxCredentials(apiKey, apiUser)
+  if (!credCheck.ok) {
+    return renderForm({
+      clientId, redirectUri, state, codeChallenge, codeChallengeMethod, responseType,
+      error: credCheck.reason,
     })
   }
 
