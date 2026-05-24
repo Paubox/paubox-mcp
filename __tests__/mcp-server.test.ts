@@ -18,38 +18,36 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (app && typeof app.close === 'function') {
+    await app.close();
+  }
 });
 
 describe('Paubox MCP Server', () => {
   describe('Route Exports', () => {
     it('should export GET handler as a function', async () => {
-      const { GET } = await import('../app/api/mcp/route');
+      const { GET } = await import('../app/[transport]/route');
       expect(typeof GET).toBe('function');
     });
 
     it('should export POST handler as a function', async () => {
-      const { POST } = await import('../app/api/mcp/route');
+      const { POST } = await import('../app/[transport]/route');
       expect(typeof POST).toBe('function');
-    });
-
-    it('should export DELETE handler as a function', async () => {
-      const { DELETE } = await import('../app/api/mcp/route');
-      expect(typeof DELETE).toBe('function');
     });
   });
 
   describe('MCP API Endpoints', () => {
-    describe('GET /api/mcp', () => {
+    describe('GET /mcp', () => {
       it('should return 405 Method Not Allowed for GET requests', async () => {
-        const res = await request('http://localhost:3001').get('/api/mcp');
+        const res = await request('http://localhost:3001').get('/mcp');
         expect(res.statusCode).toBe(405);
       });
     });
 
-    describe('POST /api/mcp', () => {
+    describe('POST /mcp', () => {
       it('should list available tools', async () => {
         const res = await request('http://localhost:3001')
-          .post('/api/mcp')
+          .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
           .send({
@@ -71,7 +69,7 @@ describe('Paubox MCP Server', () => {
           expect(Array.isArray(res.body.result.tools)).toBe(true);
 
           // Check for expected tools
-          const toolNames = res.body.result.tools.map((tool: any) => tool.name);
+          const toolNames = res.body.result.tools.map((tool: { name: string }) => tool.name);
           expect(toolNames).toContain('validate_credentials');
           expect(toolNames).toContain('send_secure_email');
           expect(toolNames).toContain('check_email_status');
@@ -81,7 +79,7 @@ describe('Paubox MCP Server', () => {
       describe('validate_credentials tool', () => {
         it('should validate credentials successfully with valid input', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -116,7 +114,7 @@ describe('Paubox MCP Server', () => {
 
         it('should reject invalid API key format', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -149,7 +147,7 @@ describe('Paubox MCP Server', () => {
 
         it('should reject missing API user', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -184,7 +182,7 @@ describe('Paubox MCP Server', () => {
       describe('send_secure_email tool', () => {
         it('should validate send_secure_email parameters', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -216,7 +214,7 @@ describe('Paubox MCP Server', () => {
 
         it('should reject invalid email format in send_secure_email', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -247,7 +245,7 @@ describe('Paubox MCP Server', () => {
 
         it('should handle optional parameters correctly', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -284,7 +282,7 @@ describe('Paubox MCP Server', () => {
       describe('check_email_status tool', () => {
         it('should validate check_email_status parameters', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -313,7 +311,7 @@ describe('Paubox MCP Server', () => {
 
         it('should reject missing sourceTrackingId in check_email_status', async () => {
           const res = await request('http://localhost:3001')
-            .post('/api/mcp')
+            .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
             .send({
@@ -346,7 +344,7 @@ describe('Paubox MCP Server', () => {
     describe('Error handling', () => {
       it('should handle missing Accept header', async () => {
         const res = await request('http://localhost:3001')
-          .post('/api/mcp')
+          .post('/mcp')
           .set('Content-Type', 'application/json')
           .send({
             jsonrpc: '2.0',
@@ -360,7 +358,7 @@ describe('Paubox MCP Server', () => {
 
       it('should handle invalid tool names', async () => {
         const res = await request('http://localhost:3001')
-          .post('/api/mcp')
+          .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
           .send({
@@ -383,7 +381,7 @@ describe('Paubox MCP Server', () => {
 
       it('should handle missing required parameters', async () => {
         const res = await request('http://localhost:3001')
-          .post('/api/mcp')
+          .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
           .send({

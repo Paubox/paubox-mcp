@@ -10,7 +10,7 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://paubox-mcp-server.vercel.app/api/mcp",
+    "url": "https://paubox-mcp-server.vercel.app/mcp",
     "has_user_authentication": false
   },
   "logo_url": "https://paubox-mcp-server.vercel.app/paubox.png",

@@ -36,7 +36,7 @@ describe('MCP Route Tests', () => {
     }
 
     const response = await request(testServer.baseUrl)
-      .post('/api/mcp')
+      .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
@@ -84,7 +84,7 @@ describe('MCP Route Tests', () => {
     }
 
     const response = await request(testServer.baseUrl)
-      .post('/api/mcp')
+      .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
@@ -126,7 +126,7 @@ describe('MCP Route Tests', () => {
     }
 
     const response = await request(testServer.baseUrl)
-      .post('/api/mcp')
+      .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .send(payload)
