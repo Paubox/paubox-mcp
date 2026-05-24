@@ -3,3 +3,6 @@ allowBuilds:
   fsevents: true
   sharp: true
   unrs-resolver: true
+
+policies:
+  minimumReleaseAge: 0
