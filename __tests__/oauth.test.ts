@@ -543,7 +543,7 @@ describe('MCP route — Bearer token credential resolution', () => {
     }
   })
 
-  it('returns missing-credentials error for an invalid Bearer token', async () => {
+  it('returns 401 with WWW-Authenticate for an invalid Bearer token (RFC 6750 §3.1)', async () => {
     const res = await request(testServer.baseUrl)
       .post('/mcp')
       .set('Content-Type', 'application/json')
@@ -555,12 +555,8 @@ describe('MCP route — Bearer token credential resolution', () => {
         params: { name: 'validate_credentials', arguments: {} },
       })
 
-    expect(res.status).toBe(200)
-    const match = res.text.match(/data: (.+)/)
-    if (match) {
-      const data = JSON.parse(match[1])
-      expect(data.result.content[0].text).toContain('❌ API credentials required')
-    }
+    expect(res.status).toBe(401)
+    expect(res.headers['www-authenticate']).toMatch(/Bearer error="invalid_token"/)
   })
 
   it('accepts a lowercase `bearer` scheme (RFC 7235 §2.1 case-insensitive match)', async () => {
