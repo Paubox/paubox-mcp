@@ -1,6 +1,7 @@
+import { getPublicOrigin } from '../../../lib/origin'
+
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const origin = `${url.protocol}//${url.host}`
+  const origin = getPublicOrigin(request)
 
   return Response.json(
     {
