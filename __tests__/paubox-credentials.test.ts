@@ -81,4 +81,22 @@ describe('checkPauboxCredentials', () => {
     const headers = calls[0].config.headers as Record<string, string>
     expect(headers.Authorization).toBe('Token token=pk_secret')
   })
+
+  it('PAUBOX_BYPASS_CRED_VALIDATION is inert when NODE_ENV is production', async () => {
+    const prevBypass = process.env.PAUBOX_BYPASS_CRED_VALIDATION
+    const prevNodeEnv = process.env.NODE_ENV
+    process.env.PAUBOX_BYPASS_CRED_VALIDATION = 'true'
+    process.env.NODE_ENV = 'production'
+    try {
+      const { fn, calls } = fakeGet(async () => ({ status: 401 }))
+      const result = await checkPauboxCredentials('pk_bad', 'user@example.com', fn)
+      expect(calls).toHaveLength(1)
+      expect(result.ok).toBe(false)
+    } finally {
+      if (prevBypass === undefined) delete process.env.PAUBOX_BYPASS_CRED_VALIDATION
+      else process.env.PAUBOX_BYPASS_CRED_VALIDATION = prevBypass
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = prevNodeEnv
+    }
+  })
 })

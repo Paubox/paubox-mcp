@@ -34,8 +34,13 @@ export async function checkPauboxCredentials(
   // but supertest-driven tests hit a real Next.js process whose route code
   // calls the live `axios.get`; without this gate they would hit the real
   // Paubox API and fail on the placeholder credentials used in fixtures.
-  // Never set this in production.
-  if (process.env.PAUBOX_BYPASS_CRED_VALIDATION === 'true') {
+  // Gated on NODE_ENV !== 'production' so an accidental prod env-var leak
+  // can't silently disable the live-validation gate this module exists to
+  // enforce.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.PAUBOX_BYPASS_CRED_VALIDATION === 'true'
+  ) {
     return { ok: true }
   }
 
