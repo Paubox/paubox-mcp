@@ -1,9 +1,6 @@
 import {withSentryConfig} from '@sentry/nextjs';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -14,7 +11,7 @@ const nextConfig = {
   productionBrowserSourceMaps: true,
   // Enable standalone output for Docker
   output: 'standalone',
-  webpack: (config, { dev, isServer }) => {
+  webpack: (config, { dev }) => {
     if (dev) {
       config.devtool = 'eval-source-map';
     }

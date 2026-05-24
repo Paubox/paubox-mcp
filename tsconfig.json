@@ -17,6 +17,8 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "rootDir": ".",
+    "ignoreDeprecations": "6.0",
     "plugins": [
       {
         "name": "next"

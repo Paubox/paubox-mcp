@@ -4,12 +4,14 @@ This is the official Model Context Protocol (MCP) server for Paubox Email API, d
 
 ## Overview
 
-This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API. Users provide their API credentials per session, ensuring security and multi-tenant support.
+This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API and to retrieve and submit Paubox Forms. Users provide their API credentials per session, ensuring security and multi-tenant support.
 
 ## Features
 
 - Send secure emails with optional encryption
 - Check email delivery status
+- Retrieve Paubox Form metadata and field schemas
+- Submit Paubox Form responses (with optional file attachments)
 - HIPAA-compliant communication
 - Easy integration with AI assistants that support MCP
 - Paubox-branded UI with official components and styling
@@ -17,19 +19,9 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 
 ## For Paubox Customers
 
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-3. Set up environment variables:
-   - `PAUBOX_API_KEY`: Your Paubox API key
-   - `PAUBOX_API_USER`: Your Paubox API user/username
+You don't host or clone anything to use Paubox MCP — Paubox runs the server at `https://mcp.paubox.com/mcp`. Add it as a connector in your AI client and enter your Paubox API credentials in the connector configuration form when prompted. See [Connecting to AI Assistants](#connecting-to-ai-assistants) below for client-specific setup.
 
-4. Run the development server:
-   ```bash
-   pnpm dev
-   ```
+The rest of this README covers self-hosting and local development.
 
 ## Proxy Configuration (Development/Testing)
 
@@ -119,9 +111,24 @@ Available Paubox components include:
 
 ### Connecting to AI Assistants
 
+There are three ways to provide your Paubox API credentials, in resolution priority order:
+
+- **Per-call tool parameters** (highest priority): Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or scripted clients.
+- **Custom connector headers**: Set `x-paubox-api-key` and `x-paubox-api-user` as custom request headers on the connector. Some MCP clients expose this in Advanced Settings when adding a custom connector.
+- **OAuth (recommended for Claude.ai and Claude Desktop)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your credentials once — the client stores a short-lived encrypted Bearer token and sends it on every future request. Credentials are validated against the Paubox API at the moment you submit the form, so typos or expired keys are caught immediately.
+
+#### Claude.ai — Claude Connectors (recommended)
+
+1. Go to [claude.ai](https://claude.ai) and open **Settings → Integrations**
+2. Click **Add connector** and enter URL `https://mcp.paubox.com/mcp`
+3. A "Configure Paubox" form opens — enter your API username and API key
+4. Click **Save**
+
+Claude stores your credentials as a secure token in the system keychain and sends it automatically on every request. You never need to include credentials in your prompts.
+
 #### Claude Desktop
 
-1. Open Claude desktop and navigate to **Settings**
+1. Open Claude Desktop and navigate to **Settings**
 2. Under the **Developer** tab, tap **Edit Config**
 3. Add this configuration:
 
@@ -129,11 +136,13 @@ Available Paubox components include:
 {
   "mcpServers": {
     "paubox": {
-      "url": "https://mcp.paubox.com/api/mcp"
+      "url": "https://mcp.paubox.com/mcp"
     }
   }
 }
 ```
+
+4. Save the file — Claude Desktop will open a browser window to the "Configure Paubox" form to collect your credentials.
 
 #### Cursor (for local testing)
 
@@ -142,7 +151,7 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "paubox": {
-      "url": "https://mcp.paubox.com/api/mcp"
+      "url": "https://mcp.paubox.com/mcp"
     }
   }
 }
@@ -155,8 +164,8 @@ Add to `.cursor/mcp.json`:
 Validates your Paubox API credentials.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 
 **Example Usage:**
 \`\`\`
@@ -168,8 +177,8 @@ Validate my Paubox credentials with API key "pk_live_..." and API user "user@com
 Sends a secure email using your Paubox credentials.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 - `from`: Sender email address (string, required)
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
@@ -178,7 +187,12 @@ Sends a secure email using your Paubox credentials.
 - `bcc`: BCC recipients (array, optional)
 - `forceSecureNotification`: Force secure notification (boolean, optional)
 
-**Example Usage:**
+**Example Usage (credentials via connector):**
+\`\`\`
+Send a secure email from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
+\`\`\`
+
+**Example Usage (credentials as parameters):**
 \`\`\`
 Send a secure email using my API key "pk_live_..." and API user "user@company.com" from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
 \`\`\`
@@ -188,13 +202,41 @@ Send a secure email using my API key "pk_live_..." and API user "user@company.co
 Checks the delivery status of a sent email.
 
 **Parameters:**
-- `apiKey`: Your Paubox API key (string, required)
-- `apiUser`: Your Paubox API user (string, required)
+- `apiKey`: Your Paubox API key (string, optional if provided via connector headers)
+- `apiUser`: Your Paubox API user (string, optional if provided via connector headers)
 - `sourceTrackingId`: Tracking ID from sent email (string, required)
 
 **Example Usage:**
 \`\`\`
-Check the status of email with tracking ID "abc123" using my API credentials
+Check the status of email with tracking ID "abc123"
+\`\`\`
+
+### get_form
+
+Retrieves metadata and the field schema for a Paubox Form. No API credentials required.
+
+**Parameters:**
+- `formId`: UUID of the Paubox Form (string, required)
+
+**Returns:** id, title, description, field definitions (`form_json`), active status, signable flag, submission count, and timestamps.
+
+**Example Usage:**
+\`\`\`
+Get the form schema for Paubox form "550e8400-e29b-41d4-a716-446655440000"
+\`\`\`
+
+### submit_form
+
+Submits a response to a Paubox Form. No API credentials required.
+
+**Parameters:**
+- `formId`: UUID of the Paubox Form (string, required)
+- `formData`: Key-value pairs matching the form's field schema (object, required)
+- `attachments`: Optional file attachments (array of `{ name, content }` where `content` is base64-encoded)
+
+**Example Usage:**
+\`\`\`
+Submit form "550e8400-e29b-41d4-a716-446655440000" with first_name "Jane", last_name "Smith", and email "jane@example.com"
 \`\`\`
 
 ## Security & Compliance
@@ -209,6 +251,20 @@ Check the status of email with tracking ID "abc123" using my API credentials
 For technical support or API access questions, contact Paubox support at support@paubox.com.
 
 ## Development
+
+### Environment variables
+
+Copy `.env.example` to `.env.local` and fill in the required value:
+
+```bash
+cp .env.example .env.local
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes | Signing secret for OAuth tokens. Generate with: `openssl rand -base64 32` |
+| `PAUBOX_API_KEY` | No | Local-dev fallback. Honored only when `NODE_ENV !== 'production'` and no OAuth token / `x-paubox-*` headers / tool parameters are present. Deliberately ignored in production to prevent cross-user credential bleed. |
+| `PAUBOX_API_USER` | No | Local-dev fallback (same semantics as `PAUBOX_API_KEY`). |
 
 ### Testing
 
