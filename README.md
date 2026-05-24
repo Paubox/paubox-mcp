@@ -304,4 +304,6 @@ The project uses a hybrid approach:
 
 ## License
 
-Copyright © Paubox, Inc. All rights reserved.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Copyright © 2026 Paubox, Inc.
