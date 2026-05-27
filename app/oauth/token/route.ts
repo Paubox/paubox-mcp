@@ -50,6 +50,7 @@ export async function POST(request: Request) {
   }
 
   const grantType = body.get('grant_type')
+  console.log(`[token] grant_type=${grantType ?? 'none'} redirect_uri=${body.get('redirect_uri') ?? 'none'}`)
 
   if (grantType === 'authorization_code') {
     const code = body.get('code')
