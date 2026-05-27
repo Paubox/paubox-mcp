@@ -379,14 +379,30 @@ function invalidTokenResponse(description: string): Response {
   )
 }
 
+function logRequest(method: string, req: Request, result: ExtractedCredentials) {
+  const auth = req.headers.get('authorization')
+  const authKind = auth
+    ? (auth.toLowerCase().startsWith('bearer ') ? 'bearer' : 'other')
+    : 'none'
+  console.log(
+    `[mcp] ${method} ${new URL(req.url).pathname}` +
+    ` auth=${authKind}` +
+    ` result=${result.kind}` +
+    ` accept=${req.headers.get('accept') ?? 'none'}` +
+    ` session=${req.headers.get('mcp-session-id') ?? 'none'}`
+  )
+}
+
 export async function GET(req: Request) {
   const result = await extractCredentials(req)
+  logRequest('GET', req, result)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
   return credentialsStorage.run(result.creds, () => mcpHandler(req))
 }
 
 export async function POST(req: Request) {
   const result = await extractCredentials(req)
+  logRequest('POST', req, result)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
   return credentialsStorage.run(result.creds, () => mcpHandler(req))
 }
