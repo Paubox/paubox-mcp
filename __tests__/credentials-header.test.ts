@@ -7,6 +7,7 @@ process.env.PAUBOX_API_USER = 'test-user';
 
 import request from 'supertest';
 import { createTestServer, closeTestServer, TestServer } from './test-helpers';
+// (TEST_AUTH_HEADERS intentionally not imported — this file tests credential resolution specifically)
 
 let testServer: TestServer;
 
@@ -56,25 +57,16 @@ describe('Claude Connectors — header-based credentials', () => {
       }
     });
 
-    it('returns missing-credentials error when no headers and no params', async () => {
+    it('returns 401 with WWW-Authenticate when no headers and no params (transport-level auth required)', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .send(mcpCall(2, 'validate_credentials', {}));
 
-      expect(res.status).toBe(200);
-
-      const text = res.text;
-      const match = text.match(/data: (.+)/);
-      expect(match).toBeTruthy();
-
-      if (match) {
-        const data = JSON.parse(match[1]);
-        expect(data.result).toBeDefined();
-        expect(data.result.content[0].text).toContain('❌ API credentials required');
-        expect(data.result.content[0].text).toContain('x-paubox-api-key');
-      }
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+      expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/);
     });
 
     it('tool params take precedence over headers', async () => {
@@ -135,7 +127,7 @@ describe('Claude Connectors — header-based credentials', () => {
       }
     });
 
-    it('returns missing-credentials error when no headers and no params', async () => {
+    it('returns 401 when no headers and no params (transport-level auth required)', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
@@ -147,16 +139,8 @@ describe('Claude Connectors — header-based credentials', () => {
           message: 'This should fail with credentials error',
         }));
 
-      expect(res.status).toBe(200);
-
-      const text = res.text;
-      const match = text.match(/data: (.+)/);
-      expect(match).toBeTruthy();
-
-      if (match) {
-        const data = JSON.parse(match[1]);
-        expect(data.result.content[0].text).toContain('❌ API credentials required');
-      }
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
     });
   });
 
@@ -223,7 +207,7 @@ describe('Claude Connectors — header-based credentials', () => {
       }
     });
 
-    it('returns missing-credentials error when no headers and no params', async () => {
+    it('returns 401 when no headers and no params (transport-level auth required)', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
@@ -232,16 +216,8 @@ describe('Claude Connectors — header-based credentials', () => {
           sourceTrackingId: 'test-tracking-id-123',
         }));
 
-      expect(res.status).toBe(200);
-
-      const text = res.text;
-      const match = text.match(/data: (.+)/);
-      expect(match).toBeTruthy();
-
-      if (match) {
-        const data = JSON.parse(match[1]);
-        expect(data.result.content[0].text).toContain('❌ API credentials required');
-      }
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
     });
   });
 
@@ -281,6 +257,8 @@ describe('Claude Connectors — header-based credentials', () => {
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
+        .set('x-paubox-api-key', VALID_API_KEY)
+        .set('x-paubox-api-user', VALID_API_USER)
         .send({ jsonrpc: '2.0', id: 8, method: 'tools/list' });
 
       expect(res.status).toBe(200);

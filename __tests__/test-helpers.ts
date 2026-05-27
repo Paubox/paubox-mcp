@@ -2,6 +2,13 @@ import next from 'next';
 import http from 'http';
 import '../lib/paubox-proxy';
 
+// Standard auth headers for tests that need transport-level auth but aren't
+// testing credential resolution specifically.
+export const TEST_AUTH_HEADERS = {
+  'x-paubox-api-key': 'pk_test_valid_api_key_1234567890',
+  'x-paubox-api-user': 'test-user@example.com',
+} as const;
+
 export interface TestServer {
   server: http.Server;
   app: ReturnType<typeof next>;
@@ -23,6 +30,9 @@ export async function createTestServer(port: number = 3001): Promise<TestServer>
 
 export async function closeTestServer(testServer: TestServer): Promise<void> {
   if (testServer?.server) {
+    // closeAllConnections() drops idle keep-alive connections immediately so
+    // server.close() doesn't hang waiting for them to drain on their own.
+    testServer.server.closeAllConnections?.()
     await new Promise<void>((resolve) => testServer.server.close(() => resolve()));
   }
   if (testServer?.app && typeof testServer.app.close === 'function') {

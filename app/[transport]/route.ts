@@ -317,6 +317,7 @@ const mcpHandler = createMcpHandler(
 type ExtractedCredentials =
   | { kind: 'ok'; creds: RequestCredentials }
   | { kind: 'invalid_token'; description: string }
+  | { kind: 'unauthenticated' }
 
 async function extractCredentials(req: Request): Promise<ExtractedCredentials> {
   // Priority 1: x-paubox-* custom headers (Claude Connector header path)
@@ -360,10 +361,25 @@ async function extractCredentials(req: Request): Promise<ExtractedCredentials> {
     }
   }
 
-  // No auth attempted. Let the handler run; the tool surfaces a
-  // missing-credentials message instead of a transport-level 401, which
-  // matches how non-OAuth clients (tool-param-only callers) work today.
-  return { kind: 'ok', creds: { apiKey: headerKey, apiUser: headerUser } }
+  // No auth attempted. Return unauthenticated so the route handler can
+  // send a 401 with WWW-Authenticate pointing at our OAuth discovery
+  // metadata. This is required for Claude.ai to trigger the OAuth flow
+  // rather than treating the server as credential-free.
+  return { kind: 'unauthenticated' }
+}
+
+function unauthenticatedResponse(req: Request): Response {
+  const origin = new URL(req.url).origin
+  return new Response(
+    JSON.stringify({ error: 'unauthorized', error_description: 'Authentication required.' }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': `Bearer realm="Paubox MCP", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+      },
+    }
+  )
 }
 
 function invalidTokenResponse(description: string): Response {
@@ -405,6 +421,7 @@ function normalizeToMcp(req: Request): Request {
 export async function GET(req: Request) {
   const result = await extractCredentials(req)
   logRequest('GET', req, result)
+  if (result.kind === 'unauthenticated') return unauthenticatedResponse(req)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
   return credentialsStorage.run(result.creds, () => mcpHandler(normalizeToMcp(req)))
 }
@@ -412,6 +429,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const result = await extractCredentials(req)
   logRequest('POST', req, result)
+  if (result.kind === 'unauthenticated') return unauthenticatedResponse(req)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
   return credentialsStorage.run(result.creds, () => mcpHandler(normalizeToMcp(req)))
 }
