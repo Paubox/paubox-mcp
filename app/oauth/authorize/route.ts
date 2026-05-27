@@ -283,6 +283,7 @@ export async function POST(request: NextRequest) {
   // here (see checkPauboxCredentials) so a backend incident doesn't block
   // all new connector adds.
   const credCheck = await checkPauboxCredentials(apiKey, apiUser)
+  console.log(`[authorize] credCheck ok=${credCheck.ok} redirect_uri=${redirectUri}`)
   if (!credCheck.ok) {
     return renderForm({
       clientId, redirectUri, state, codeChallenge, codeChallengeMethod, responseType,
@@ -296,5 +297,6 @@ export async function POST(request: NextRequest) {
   callbackUrl.searchParams.set('code', code)
   if (state) callbackUrl.searchParams.set('state', state)
 
+  console.log(`[authorize] redirecting to ${callbackUrl.origin}${callbackUrl.pathname}`)
   return Response.redirect(callbackUrl.toString(), 302)
 }
