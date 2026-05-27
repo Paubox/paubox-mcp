@@ -16,7 +16,13 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(3001, () => resolve()));
 }, 5000);
 
+const TEST_AUTH_HEADERS = {
+  'x-paubox-api-key': 'pk_test_valid_api_key_1234567890',
+  'x-paubox-api-user': 'test-user@example.com',
+};
+
 afterAll(async () => {
+  server.closeAllConnections?.()
   await new Promise<void>((resolve) => server.close(() => resolve()));
   if (app && typeof app.close === 'function') {
     await app.close();
@@ -38,8 +44,10 @@ describe('Paubox MCP Server', () => {
 
   describe('MCP API Endpoints', () => {
     describe('GET /mcp', () => {
-      it('should return 405 Method Not Allowed for GET requests', async () => {
-        const res = await request('http://localhost:3001').get('/mcp');
+      it('should return 405 Method Not Allowed for authenticated GET requests', async () => {
+        const res = await request('http://localhost:3001')
+          .get('/mcp')
+          .set(TEST_AUTH_HEADERS);
         expect(res.statusCode).toBe(405);
       });
     });
@@ -50,6 +58,7 @@ describe('Paubox MCP Server', () => {
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
           .send({
             jsonrpc: '2.0',
             id: 1,
@@ -82,6 +91,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 2,
@@ -117,6 +127,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 3,
@@ -150,6 +161,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 4,
@@ -185,6 +197,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 5,
@@ -217,6 +230,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 6,
@@ -248,6 +262,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 7,
@@ -285,6 +300,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 8,
@@ -314,6 +330,7 @@ describe('Paubox MCP Server', () => {
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
             .send({
               jsonrpc: '2.0',
               id: 9,
@@ -346,13 +363,14 @@ describe('Paubox MCP Server', () => {
         const res = await request('http://localhost:3001')
           .post('/mcp')
           .set('Content-Type', 'application/json')
+          .set(TEST_AUTH_HEADERS)
           .send({
             jsonrpc: '2.0',
             id: 1,
             method: 'tools/list'
           });
 
-        // The API returns 406 when Accept header is missing
+        // The MCP handler returns 406 when Accept header is missing
         expect(res.statusCode).toBe(406);
       });
 
@@ -361,6 +379,7 @@ describe('Paubox MCP Server', () => {
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
           .send({
             jsonrpc: '2.0',
             id: 10,
@@ -384,6 +403,7 @@ describe('Paubox MCP Server', () => {
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
           .send({
             jsonrpc: '2.0',
             id: 11,

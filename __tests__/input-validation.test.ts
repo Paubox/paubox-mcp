@@ -7,7 +7,7 @@ process.env.PAUBOX_API_KEY = 'test-key';
 process.env.PAUBOX_API_USER = 'test-user';
 
 import request from 'supertest';
-import { createTestServer, closeTestServer, TestServer } from './test-helpers';
+import { createTestServer, closeTestServer, TestServer, TEST_AUTH_HEADERS } from './test-helpers';
 
 let testServer: TestServer;
 
@@ -43,6 +43,7 @@ describe('validate_credentials — input validation', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send(mcpCall(1, 'validate_credentials', {
         apiKey: '          ', // 10 spaces — passes Zod min(10), caught by apiKey.trim().length < 10
         apiUser: VALID_API_USER,
@@ -58,6 +59,7 @@ describe('validate_credentials — input validation', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send(mcpCall(2, 'validate_credentials', {
         apiKey: VALID_API_KEY,
         apiUser: '   ',
@@ -75,6 +77,7 @@ describe('send_secure_email — input validation', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send(mcpCall(3, 'send_secure_email', {
         apiKey: VALID_API_KEY,
         apiUser: VALID_API_USER,
@@ -94,6 +97,7 @@ describe('send_secure_email — input validation', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send(mcpCall(4, 'send_secure_email', {
         apiKey: VALID_API_KEY,
         apiUser: VALID_API_USER,
@@ -115,6 +119,7 @@ describe('check_email_status — input validation', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send(mcpCall(5, 'check_email_status', {
         apiKey: VALID_API_KEY,
         apiUser: VALID_API_USER,

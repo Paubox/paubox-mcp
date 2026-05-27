@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { createTestServer, closeTestServer, TestServer } from './test-helpers';
+import { createTestServer, closeTestServer, TestServer, TEST_AUTH_HEADERS } from './test-helpers';
 
 let testServer: TestServer;
 
@@ -18,6 +18,7 @@ async function callTool(id: number, name: string, args: Record<string, unknown>)
     .post('/mcp')
     .set('Content-Type', 'application/json')
     .set('Accept', 'application/json, text/event-stream')
+    .set(TEST_AUTH_HEADERS)
     .send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })
     .timeout(10000);
   return response;
@@ -29,6 +30,7 @@ describe('Paubox Forms MCP Tools', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set(TEST_AUTH_HEADERS)
       .send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
       .timeout(10000);
 

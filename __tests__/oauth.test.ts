@@ -543,6 +543,29 @@ describe('MCP route — Bearer token credential resolution', () => {
     }
   })
 
+  it('returns 401 with resource_metadata WWW-Authenticate when no auth is provided (RFC 9728)', async () => {
+    // Temporarily clear env-var fallback so the unauthenticated path triggers.
+    const savedKey = process.env.PAUBOX_API_KEY
+    const savedUser = process.env.PAUBOX_API_USER
+    delete process.env.PAUBOX_API_KEY
+    delete process.env.PAUBOX_API_USER
+
+    try {
+      const res = await request(testServer.baseUrl)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })
+
+      expect(res.status).toBe(401)
+      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/)
+      expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/)
+    } finally {
+      process.env.PAUBOX_API_KEY = savedKey
+      process.env.PAUBOX_API_USER = savedUser
+    }
+  })
+
   it('returns 401 with WWW-Authenticate for an invalid Bearer token (RFC 6750 §3.1)', async () => {
     const res = await request(testServer.baseUrl)
       .post('/mcp')

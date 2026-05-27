@@ -39,6 +39,8 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set('x-paubox-api-key', 'test-api-key-1234567890')
+      .set('x-paubox-api-user', 'test-user@example.com')
       .send(payload)
 
     // Check that the response is successful
@@ -87,6 +89,8 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set('x-paubox-api-key', 'test-api-key-1234567890')
+      .set('x-paubox-api-user', 'test-user@example.com')
       .send(payload)
 
     // Check that the response is successful
@@ -129,6 +133,8 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
+      .set('x-paubox-api-key', 'test-api-key-1234567890')
+      .set('x-paubox-api-user', 'test-user@example.com')
       .send(payload)
       .timeout(5000)
 
