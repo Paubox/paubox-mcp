@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { EncryptJWT, jwtDecrypt } from 'jose'
 
 export interface AuthCodePayload {
@@ -114,43 +114,31 @@ export function markAuthCodeConsumed(jti: string, ttlSeconds = CONSUMED_CODE_TTL
   consumedAuthCodes.set(jti, Date.now() + ttlSeconds * 1000)
 }
 
-// Refresh-token store. Tokens are opaque random strings (not JWTs) — they
-// are credentials, not assertions, and revocation requires server-side
-// state anyway. Same single-process caveat as consumedAuthCodes applies.
-interface RefreshTokenRecord {
-  apiKey: string
-  apiUser: string
-  expiresAt: number
+// Refresh tokens are JWEs (same encryption as access tokens) with credentials
+// embedded and a 30-day TTL. This makes them stateless — any instance can
+// verify them without a shared store, which is required when running multiple
+// ECS tasks. The trade-off vs opaque tokens is that individual refresh tokens
+// cannot be revoked before expiry; users can revoke access by rotating their
+// Paubox API key.
+export async function issueRefreshToken(apiKey: string, apiUser: string): Promise<string> {
+  return new EncryptJWT({ apiKey, apiUser, type: 'refresh_token' } as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+    .setJti(randomUUID())
+    .setIssuedAt()
+    .setExpirationTime(`${REFRESH_TOKEN_TTL_SECONDS}s`)
+    .encrypt(getEncryptionKey())
 }
 
-const refreshTokens = new Map<string, RefreshTokenRecord>()
-
-function pruneRefreshTokens(now: number) {
-  for (const [token, rec] of refreshTokens) {
-    if (rec.expiresAt <= now) refreshTokens.delete(token)
+export async function consumeRefreshToken(token: string): Promise<{ apiKey: string; apiUser: string } | null> {
+  try {
+    const { payload } = await jwtDecrypt(token, getEncryptionKey(), {
+      keyManagementAlgorithms: ['dir'],
+      contentEncryptionAlgorithms: ['A256GCM'],
+    })
+    if (payload.type !== 'refresh_token') return null
+    if (typeof payload.apiKey !== 'string' || typeof payload.apiUser !== 'string') return null
+    return { apiKey: payload.apiKey, apiUser: payload.apiUser }
+  } catch {
+    return null
   }
-}
-
-export function issueRefreshToken(
-  apiKey: string,
-  apiUser: string,
-  ttlSeconds = REFRESH_TOKEN_TTL_SECONDS,
-): string {
-  const token = randomBytes(32).toString('base64url')
-  refreshTokens.set(token, {
-    apiKey,
-    apiUser,
-    expiresAt: Date.now() + ttlSeconds * 1000,
-  })
-  return token
-}
-
-// Consume rotates: the redeemed token is deleted so a replay returns null.
-// Caller issues a fresh refresh token alongside the new access token.
-export function consumeRefreshToken(token: string): { apiKey: string; apiUser: string } | null {
-  pruneRefreshTokens(Date.now())
-  const rec = refreshTokens.get(token)
-  if (!rec) return null
-  refreshTokens.delete(token)
-  return { apiKey: rec.apiKey, apiUser: rec.apiUser }
 }

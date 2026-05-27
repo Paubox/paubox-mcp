@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       apiKey: authCodePayload.apiKey,
       apiUser: authCodePayload.apiUser,
     })
-    const refreshToken = issueRefreshToken(authCodePayload.apiKey, authCodePayload.apiUser)
+    const refreshToken = await issueRefreshToken(authCodePayload.apiKey, authCodePayload.apiUser)
     return tokenResponse(accessToken, refreshToken)
   }
 
@@ -94,9 +94,7 @@ export async function POST(request: Request) {
     const refreshTokenParam = body.get('refresh_token')
     if (!refreshTokenParam) return errorJson('invalid_request', 'Missing refresh_token')
 
-    // Rotation: consumeRefreshToken atomically deletes the redeemed token.
-    // OAuth 2.1 §6.1 recommends refresh-token rotation for public clients.
-    const creds = consumeRefreshToken(refreshTokenParam)
+    const creds = await consumeRefreshToken(refreshTokenParam)
     if (!creds) {
       return errorJson('invalid_grant', 'Refresh token is invalid or expired', 401)
     }
@@ -105,7 +103,7 @@ export async function POST(request: Request) {
       apiKey: creds.apiKey,
       apiUser: creds.apiUser,
     })
-    const newRefreshToken = issueRefreshToken(creds.apiKey, creds.apiUser)
+    const newRefreshToken = await issueRefreshToken(creds.apiKey, creds.apiUser)
     return tokenResponse(accessToken, newRefreshToken)
   }
 

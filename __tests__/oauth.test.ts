@@ -644,7 +644,12 @@ describe('POST /oauth/token — refresh_token grant', () => {
     expect(payload.apiUser).toBe('rt-user@example.com')
   })
 
-  it('rejects a refresh_token that has already been used (rotation)', async () => {
+  it('stateless JWE refresh tokens are reusable until expiry (trade-off for multi-instance)', async () => {
+    // JWE refresh tokens are stateless — there is no shared revocation store,
+    // so the same token can be exchanged multiple times. Each exchange still
+    // issues a fresh access + refresh token pair. The trade-off is acceptable
+    // because (a) tokens are encrypted, (b) they expire in 30 days, and (c)
+    // users can revoke access by rotating their Paubox API key.
     const initial = await getInitialTokens('pk_test_rt_replay_1234567890', 'rt-replay@example.com')
 
     const first = await request(testServer.baseUrl)
@@ -652,13 +657,16 @@ describe('POST /oauth/token — refresh_token grant', () => {
       .type('form')
       .send({ grant_type: 'refresh_token', refresh_token: initial.refresh_token })
     expect(first.status).toBe(200)
+    const firstBody = JSON.parse(first.text)
+    expect(firstBody.access_token).toBeTruthy()
+    expect(firstBody.refresh_token).not.toBe(initial.refresh_token)
 
+    // Original token still works — stateless JWE has no usage tracking.
     const second = await request(testServer.baseUrl)
       .post('/oauth/token')
       .type('form')
       .send({ grant_type: 'refresh_token', refresh_token: initial.refresh_token })
-    expect(second.status).toBe(401)
-    expect(JSON.parse(second.text).error).toBe('invalid_grant')
+    expect(second.status).toBe(200)
   })
 
   it('rejects an unknown refresh_token', async () => {
