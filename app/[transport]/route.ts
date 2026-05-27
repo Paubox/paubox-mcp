@@ -388,7 +388,6 @@ function logRequest(method: string, req: Request, result: ExtractedCredentials) 
     `[mcp] ${method} ${new URL(req.url).pathname}` +
     ` auth=${authKind}` +
     ` result=${result.kind}` +
-    ` accept=${req.headers.get('accept') ?? 'none'}` +
     ` session=${req.headers.get('mcp-session-id') ?? 'none'}`
   )
 }
