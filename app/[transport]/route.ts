@@ -311,7 +311,7 @@ const mcpHandler = createMcpHandler(
     )
   },
   {},
-  { basePath: "" }
+  { basePath: "", disableSse: true }
 )
 
 type ExtractedCredentials =
