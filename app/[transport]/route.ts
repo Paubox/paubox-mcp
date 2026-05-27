@@ -393,16 +393,26 @@ function logRequest(method: string, req: Request, result: ExtractedCredentials) 
   )
 }
 
+// Next.js rewrites keep req.url at the original path, but mcp-handler
+// does an exact pathname check for "/mcp". Normalize to "/mcp" so the
+// handler routes correctly whether the request arrived at / or /mcp.
+function normalizeToMcp(req: Request): Request {
+  const url = new URL(req.url)
+  if (url.pathname === '/mcp') return req
+  url.pathname = '/mcp'
+  return new Request(url.toString(), req)
+}
+
 export async function GET(req: Request) {
   const result = await extractCredentials(req)
   logRequest('GET', req, result)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
-  return credentialsStorage.run(result.creds, () => mcpHandler(req))
+  return credentialsStorage.run(result.creds, () => mcpHandler(normalizeToMcp(req)))
 }
 
 export async function POST(req: Request) {
   const result = await extractCredentials(req)
   logRequest('POST', req, result)
   if (result.kind === 'invalid_token') return invalidTokenResponse(result.description)
-  return credentialsStorage.run(result.creds, () => mcpHandler(req))
+  return credentialsStorage.run(result.creds, () => mcpHandler(normalizeToMcp(req)))
 }
