@@ -162,8 +162,8 @@ function renderForm(p: FormParams): Response {
 
       <div class="field">
         <label>Paubox API Username <span class="required">(Required)</span></label>
-        <p class="desc">The endpoint username for your sending domain. In the Paubox dashboard, go to Email API → your domain → the "Endpoint Username" field (e.g. <strong>paubox_api</strong>).</p>
-        <input type="text" name="apiUser" placeholder="paubox_api" autocomplete="username" required>
+        <p class="desc">The endpoint username for your sending domain. In the Paubox dashboard, go to Email API → your domain → the "Endpoint Username" field (e.g. <strong>api_user</strong>).</p>
+        <input type="text" name="apiUser" placeholder="api_user" autocomplete="username" required>
       </div>
 
       <div class="field">
