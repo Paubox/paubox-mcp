@@ -1,0 +1,46 @@
+{
+  "family": "paubox-mcp-server-production-webapp-task",
+  "taskRoleArn": "arn:aws:iam::285263271540:role/ecs-task-execution-role",
+  "executionRoleArn": "arn:aws:iam::285263271540:role/ecs-task-execution-role",
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "requiresCompatibilities": ["FARGATE"],
+  "containerDefinitions": [
+    {
+      "name": "nextjs-app",
+      "image": "285263271540.dkr.ecr.us-west-2.amazonaws.com/paubox-mcp-server-production:latest",
+      "cpu": 512,
+      "memory": 1024,
+      "portMappings": [
+        { "containerPort": 3000, "hostPort": 3000, "protocol": "tcp", "name": "webapp" }
+      ],
+      "essential": true,
+      "environment": [
+        { "name": "PORT", "value": "3000" },
+        { "name": "NODE_ENV", "value": "production" }
+      ],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "secrets": [
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:ssm:us-west-2:285263271540:parameter/production/pb-mcp-server/JWT_SECRET" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/paubox-mcp-server-production-webapp",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://$(hostname -i):3000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "systemControls": []
+    }
+  ]
+}

@@ -1,13 +1,6 @@
 name: Deploy to Staging
 
 on:
-#  push:
-#    branches:
-#      - develop
-#  pull_request:
-#    branches:
-#      - develop
-#    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       branch:
@@ -26,6 +19,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.git-sha.outputs.sha }}
 
     steps:
       - name: Checkout code
@@ -52,30 +47,30 @@ jobs:
         id: git-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Get source branch name
-        id: source-branch
+      # Phase C (ADR-016/022): ECR is IMMUTABLE — skip the build when :<sha> already
+      # exists (re-deploying an unchanged commit) rather than fail the re-push.
+      - name: Check if image already exists
+        id: imgexists
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "branch=$(echo '${{ github.head_ref }}' | sed 's/[^a-zA-Z0-9]/-/g')" >> $GITHUB_OUTPUT
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="${{ steps.git-sha.outputs.sha }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "branch=$(echo '${{ github.ref_name }}' | sed 's/[^a-zA-Z0-9]/-/g')" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Extract metadata (labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=${{ steps.git-sha.outputs.sha }}
-            type=raw,value=pr-${{ steps.source-branch.outputs.branch }}-${{ steps.git-sha.outputs.sha }},enable=${{ github.event_name == 'pull_request' }}
 
+      # Phase C: push ONLY the immutable :<sha> (no moving :latest/branch tags — they
+      # can't be re-pushed to an IMMUTABLE repo). The deploy pins this sha below.
       - name: Build and push Docker image
         id: build
+        if: steps.imgexists.outputs.exists != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -88,25 +83,15 @@ jobs:
           build-args: |
             NODE_ENV=staging
 
-      - name: Output image digest
-        uses: actions/github-script@v7
-        with:
-          script: |
-            console.log(`Image digest: ${{ steps.build.outputs.digest }}`)
-            console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
-            if ('${{ github.event_name }}' === 'pull_request') {
-              console.log(`PR from: ${{ github.head_ref }}`)
-              console.log(`PR to: ${{ github.base_ref }}`)
-            }
-            console.log(`Staging image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
-            console.log(`Source branch: ${{ steps.source-branch.outputs.branch }}`)
-
   deploy-to-ecs:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' # Only deploy on actual pushes, not PRs
+    if: github.event_name != 'pull_request'
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -114,9 +99,19 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_GITHUB_ACTIONS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Force new ECS deployment
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment
+      # Phase C (ADR-016/022): deploy the immutable :<sha> by registering a new revision
+      # of the COMMITTED taskdef, instead of force-new-deployment on a moving tag.
+      - name: Render task definition with the immutable image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef/staging.json
+          container-name: nextjs-app
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-push.outputs.sha }}
+
+      - name: Deploy task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
