@@ -12,6 +12,7 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 - Check email delivery status
 - Retrieve Paubox Form metadata and field schemas
 - Submit Paubox Form responses (with optional file attachments)
+- Manage Paubox Forms — create, update, archive, copy, list submissions, and export data (requires a scoped API key)
 - HIPAA-compliant communication
 - Easy integration with AI assistants that support MCP
 - Paubox-branded UI with official components and styling
@@ -137,7 +138,7 @@ claude mcp add paubox \
   -- npx @paubox/mcp@latest
 ```
 
-Claude Code spawns the package locally and injects the credentials as environment variables. All three tools (`validate_credentials`, `send_secure_email`, `check_email_status`) work without passing credentials in each call.
+Claude Code spawns the package locally and injects the credentials as environment variables. All tools — email, forms, and forms management — work without passing credentials in each call.
 
 #### Claude Desktop
 
@@ -252,6 +253,27 @@ Submits a response to a Paubox Form. No API credentials required.
 **Example Usage:**
 \`\`\`
 Submit form "550e8400-e29b-41d4-a716-446655440000" with first_name "Jane", last_name "Smith", and email "jane@example.com"
+\`\`\`
+
+### Paubox Forms management
+
+The following tools manage forms and their submissions. Unlike `get_form` and `submit_form` (which remain credential-free), they require a **scoped Paubox API key** carrying the `forms` scope, sent as a Bearer token. This reuses the existing `apiKey` credential — via OAuth, `x-paubox-api-key` header, tool parameter, or the `PAUBOX_API_KEY` env var on stdio — and `apiUser` is not required. Scoped API keys are managed in the Paubox admin dashboard.
+
+- `list_forms`: List a customer's forms with search, sorting, archived/active filters, and pagination (`customerId` required)
+- `create_form`: Create a new form from a title, field schema (`formJson`), and `customerId`, with optional description, HTML/CSS, notification recipients, and signable settings
+- `update_form`: Partially update a form — title, description, `formJson`, vanity URL, recipients, active status, or subscription list
+- `archive_form` / `unarchive_form`: Archive a form (deactivates it) or restore it
+- `copy_form`: Duplicate an existing form under a new title
+- `get_form_stats`: Active form count, total submissions, and submissions in the last 7 days
+- `list_form_submissions`: List a form's submissions with parsed field data, submitter email, and attachment info
+- `export_submissions_csv`: Export a form's submissions (or a single submission) as CSV
+- `export_submission_pdf`: Export a single submission as a base64-encoded PDF
+
+With an `apiKey` available, `get_form` also uses the authenticated API, so inactive and archived forms become retrievable.
+
+**Example Usage:**
+\`\`\`
+List the active forms for customer 1234, then show me the submissions for the intake form
 \`\`\`
 
 ## Security & Compliance

@@ -11,6 +11,9 @@ package-lock.json
 # production
 /build
 
+# compiled stdio package output (pnpm build:stdio)
+/dist
+
 # debug
 npm-debug.log*
 yarn-debug.log*
