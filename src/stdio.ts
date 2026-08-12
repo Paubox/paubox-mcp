@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import pauboxNode from "paubox-node"
+import { validateFormId } from "./validate-form-id.js"
 
 const apiKey = process.env.PAUBOX_API_KEY
 const apiUser = process.env.PAUBOX_API_USER
@@ -165,6 +166,8 @@ function formsErrorMessage(status: number, body: string): string {
   return `Paubox Forms API error (HTTP ${status})${detail}`
 }
 
+const FETCH_TIMEOUT_MS = 15000
+
 async function formsRequest(
   path: string,
   options: {
@@ -188,6 +191,7 @@ async function formsRequest(
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!response.ok) {
     let body = ""
@@ -227,10 +231,8 @@ server.tool(
   },
   async ({ formId }: { formId: string }) => {
     try {
-      if (!formId || formId.trim().length === 0) {
-        throw new Error("Form ID is required")
-      }
-      const id = encodeURIComponent(formId.trim())
+      const validated = validateFormId(formId, "formId")
+      const id = encodeURIComponent(validated)
       let form: FormRecord | undefined
 
       // Authenticated lookup first (retrieves inactive/archived forms). Fall
@@ -238,12 +240,15 @@ server.tool(
       // get_form keeps working credential-free.
       const authResponse = await fetch(`${FORMS_BASE_URL}/api/forms/${id}`, {
         headers: { Authorization: `Bearer ${apiKey!.trim()}` },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (authResponse.ok) {
         const payload = (await authResponse.json()) as { data: FormRecord }
         form = payload.data
       } else if (authResponse.status === 401 || authResponse.status === 403) {
-        const publicResponse = await fetch(`${FORMS_BASE_URL}/public/form_data/${id}`)
+        const publicResponse = await fetch(`${FORMS_BASE_URL}/public/form_data/${id}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        })
         if (publicResponse.status === 404) {
           return { content: [{ type: "text" as const, text: "Form not found." }] }
         }
@@ -316,17 +321,16 @@ server.tool(
     attachments?: Array<{ name: string; content: string }>
   }) => {
     try {
-      if (!formId || formId.trim().length === 0) {
-        throw new Error("Form ID is required")
-      }
+      const validated = validateFormId(formId, "formId")
       const body: Record<string, unknown> = { form_data: formData }
       if (attachments && attachments.length > 0) {
         body.attachments = attachments
       }
-      const response = await fetch(`${FORMS_BASE_URL}/api/forms/${encodeURIComponent(formId.trim())}/submissions`, {
+      const response = await fetch(`${FORMS_BASE_URL}/api/forms/${encodeURIComponent(validated)}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (response.status === 404) {
         return { content: [{ type: "text" as const, text: "Form not found." }] }
@@ -564,8 +568,9 @@ server.tool(
       if (Object.keys(body).length === 0) {
         throw new Error("Provide at least one field to update")
       }
+      const validated = validateFormId(formId, "formId")
 
-      const response = await formsRequest(`/api/forms/${encodeURIComponent(formId.trim())}`, {
+      const response = await formsRequest(`/api/forms/${encodeURIComponent(validated)}`, {
         method: "PUT",
         body,
       })
@@ -594,7 +599,8 @@ server.tool(
   },
   async ({ formId }: { formId: string }) => {
     try {
-      const response = await formsRequest(`/api/forms/${encodeURIComponent(formId.trim())}/archive`, {
+      const validated = validateFormId(formId, "formId")
+      const response = await formsRequest(`/api/forms/${encodeURIComponent(validated)}/archive`, {
         method: "POST",
       })
       const payload = (await response.json()) as { detail?: string }
@@ -619,7 +625,8 @@ server.tool(
   },
   async ({ formId }: { formId: string }) => {
     try {
-      const response = await formsRequest(`/api/forms/${encodeURIComponent(formId.trim())}/unarchive`, {
+      const validated = validateFormId(formId, "formId")
+      const response = await formsRequest(`/api/forms/${encodeURIComponent(validated)}/unarchive`, {
         method: "POST",
       })
       const payload = (await response.json()) as { detail?: string }
@@ -647,9 +654,10 @@ server.tool(
   },
   async ({ formId, title }: { formId: string; title: string }) => {
     try {
+      const validated = validateFormId(formId, "formId")
       const response = await formsRequest("/api/forms/copy", {
         method: "POST",
-        body: { form_id: formId.trim(), title },
+        body: { form_id: validated, title },
       })
       const payload = (await response.json()) as FormRecord
       return {
@@ -736,7 +744,9 @@ server.tool(
     items?: number
   }) => {
     try {
-      const response = await formsRequest(`/api/forms/${encodeURIComponent(formId.trim())}/submissions`, {
+      const validated = validateFormId(formId, "formId")
+      if (submissionId !== undefined) validateFormId(submissionId, "submissionId")
+      const response = await formsRequest(`/api/forms/${encodeURIComponent(validated)}/submissions`, {
         query: {
           submission_id: submissionId,
           order_by: orderBy,
@@ -812,8 +822,11 @@ server.tool(
   },
   async ({ formId, submissionId }: { formId: string; submissionId?: string }) => {
     try {
-      const basePath = `/api/forms/${encodeURIComponent(formId.trim())}/submissions/submission-csv`
-      const path = submissionId ? `${basePath}/${encodeURIComponent(submissionId.trim())}` : basePath
+      const validatedForm = validateFormId(formId, "formId")
+      const basePath = `/api/forms/${encodeURIComponent(validatedForm)}/submissions/submission-csv`
+      const path = submissionId
+        ? `${basePath}/${encodeURIComponent(validateFormId(submissionId, "submissionId"))}`
+        : basePath
       const response = await formsRequest(path)
       const csv = await response.text()
       if (csv.length > CSV_TRUNCATE_BYTES) {
@@ -849,8 +862,10 @@ server.tool(
   },
   async ({ formId, submissionId }: { formId: string; submissionId: string }) => {
     try {
+      const validatedForm = validateFormId(formId, "formId")
+      const validatedSubmission = validateFormId(submissionId, "submissionId")
       const response = await formsRequest(
-        `/api/forms/${encodeURIComponent(formId.trim())}/submissions/${encodeURIComponent(submissionId.trim())}/submission-pdf`
+        `/api/forms/${encodeURIComponent(validatedForm)}/submissions/${encodeURIComponent(validatedSubmission)}/submission-pdf`
       )
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.byteLength > PDF_MAX_BYTES) {
