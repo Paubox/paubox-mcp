@@ -159,4 +159,80 @@ describe('MCP Route Tests', () => {
       expect(responseData.result.content[0].text).toContain('Invalid arguments for tool send_secure_email')
     }
   })
+
+  // Regression: caller-supplied formId that isn't a UUID must be rejected
+  // before it hits any URL path — a `..`/`?`/`#` splice would otherwise
+  // let a hostile caller retarget the request to a different endpoint on
+  // the same host. Same class of finding that gate-blocked paubox-python3
+  // PR #10 and paubox-php PR #16.
+  const HOSTILE_FORM_IDS = [
+    { label: 'dot-dot',       formId: '..' },
+    { label: 'path traversal', formId: '../public/customers' },
+    { label: 'query splice',   formId: 'abc?admin=true' },
+    { label: 'fragment splice', formId: 'abc#frag' },
+    { label: 'slash',          formId: 'abc/def' },
+  ]
+
+  async function callGetForm(id: number, formId: string) {
+    const payload = {
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: { name: 'get_form', arguments: { formId } },
+    }
+    return request(testServer.baseUrl)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('x-paubox-api-key', 'test-api-key-1234567890')
+      .set('x-paubox-api-user', 'test-user@example.com')
+      .send(payload)
+      .timeout(5000)
+  }
+
+  async function callSubmitForm(id: number, formId: string) {
+    const payload = {
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: {
+        name: 'submit_form',
+        arguments: { formId, formData: { probe: 'regression' } },
+      },
+    }
+    return request(testServer.baseUrl)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('x-paubox-api-key', 'test-api-key-1234567890')
+      .set('x-paubox-api-user', 'test-user@example.com')
+      .send(payload)
+      .timeout(5000)
+  }
+
+  function parseSse(text: string): { result: { content: Array<{ text: string }> } } | null {
+    const dataMatch = text.match(/data: (.+)/)
+    if (!dataMatch) return null
+    return JSON.parse(dataMatch[1])
+  }
+
+  HOSTILE_FORM_IDS.forEach(({ label, formId }, i) => {
+    it(`get_form rejects hostile formId (${label}) before firing a request`, async () => {
+      const response = await callGetForm(1000 + i, formId)
+      expect(response.status).toBe(200)
+      const parsed = parseSse(response.text)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.result.content[0].text).toContain('formId must be a UUID.')
+      expect(parsed!.result.content[0].text).toContain('❌ Failed to retrieve form')
+    })
+
+    it(`submit_form rejects hostile formId (${label}) before firing a request`, async () => {
+      const response = await callSubmitForm(2000 + i, formId)
+      expect(response.status).toBe(200)
+      const parsed = parseSse(response.text)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.result.content[0].text).toContain('formId must be a UUID.')
+      expect(parsed!.result.content[0].text).toContain('❌ Failed to submit form')
+    })
+  })
 })

@@ -19,6 +19,28 @@ export class PauboxFormsError extends Error {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Validate caller-supplied identifiers before they hit a URL path. Rejects
+// empty/`.`/`..` and non-UUID shapes so `?`/`#`/`/`/`..` in caller input
+// can't splice the request to a different endpoint on the same host.
+// Callers still URL-encode the survivor at the interpolation site. Throws
+// PauboxFormsError so callers can map it into a user-facing "Failed to X"
+// message the same way as HTTP errors.
+export function validateFormId(raw: string, field = 'formId'): string {
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) {
+    throw new PauboxFormsError(`${field} is required.`)
+  }
+  if (trimmed === '.' || trimmed === '..') {
+    throw new PauboxFormsError(`${field} must be a UUID.`)
+  }
+  if (!UUID_RE.test(trimmed)) {
+    throw new PauboxFormsError(`${field} must be a UUID.`)
+  }
+  return trimmed
+}
+
 export type Form = {
   id: string
   title: string

@@ -11,6 +11,7 @@ import {
   PauboxFormsError,
   Form,
   FormSubmission,
+  validateFormId,
 } from '../../lib/paubox-forms'
 
 type PauboxMessage = {
@@ -274,28 +275,32 @@ const mcpHandler = createMcpHandler(
       },
       async ({ formId, apiKey: paramKey }: { formId: string; apiKey?: string }) => {
         try {
-          if (!formId || formId.trim().length === 0) {
-            throw new Error("Form ID is required")
-          }
+          const safeFormId = validateFormId(formId, 'formId')
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           let form
           if (apiKey) {
             const client = createFormsClient({ apiKey })
             try {
-              form = await client.getForm(formId.trim())
+              form = await client.getForm(safeFormId)
             } catch (error) {
               // The stored key may be email-only (no "forms" scope). Fall back
               // to the public endpoint so get_form keeps working
               // credential-free for active forms, like the stdio server does.
               if (error instanceof PauboxFormsError && (error.status === 401 || error.status === 403)) {
-                const response = await axios.get(`${FORMS_BASE_URL}/public/form_data/${formId.trim()}`)
+                const response = await axios.get(
+                  `${FORMS_BASE_URL}/public/form_data/${encodeURIComponent(safeFormId)}`,
+                  { timeout: 15000 },
+                )
                 form = response.data
               } else {
                 throw error
               }
             }
           } else {
-            const response = await axios.get(`${FORMS_BASE_URL}/public/form_data/${formId.trim()}`)
+            const response = await axios.get(
+              `${FORMS_BASE_URL}/public/form_data/${encodeURIComponent(safeFormId)}`,
+              { timeout: 15000 },
+            )
             form = response.data
           }
           return {
@@ -353,14 +358,16 @@ const mcpHandler = createMcpHandler(
         attachments?: Array<{ name: string; content: string }>;
       }) => {
         try {
-          if (!formId || formId.trim().length === 0) {
-            throw new Error("Form ID is required")
-          }
+          const safeFormId = validateFormId(formId, 'formId')
           const body: Record<string, unknown> = { form_data: formData }
           if (attachments && attachments.length > 0) {
             body.attachments = attachments
           }
-          await axios.post(`${FORMS_BASE_URL}/api/forms/${formId.trim()}/submissions`, body)
+          await axios.post(
+            `${FORMS_BASE_URL}/api/forms/${encodeURIComponent(safeFormId)}/submissions`,
+            body,
+            { timeout: 15000 },
+          )
           return { content: [{ type: "text", text: "✅ Form submitted successfully." }] }
         } catch (error) {
           if (axios.isAxiosError(error)) {
