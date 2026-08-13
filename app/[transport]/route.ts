@@ -447,7 +447,7 @@ const mcpHandler = createMcpHandler(
       {
         apiKey: z.string().optional().describe("Paubox API key with the \"forms\" scope"),
         title: z.string().min(1, "Title is required").describe("Form title"),
-        formJson: z.unknown().describe("Form field schema as a JSON value (form_json)"),
+        formJson: z.union([z.record(z.string(), z.unknown()), z.string()]).describe("Form field schema as a JSON object (form_json). Pass the object itself; a JSON-encoded string will be parsed."),
         customerId: z.number().int().describe("Paubox customer ID that owns the form"),
         description: z.string().optional().describe("Form description"),
         formHtml: z.string().optional().describe("Rendered form HTML"),
@@ -522,7 +522,7 @@ const mcpHandler = createMcpHandler(
         formId: z.string().min(1, "Form ID is required").describe("UUID of the form to update"),
         title: z.string().optional().describe("New form title"),
         description: z.string().optional().describe("New form description"),
-        formJson: z.unknown().optional().describe("New form field schema as a JSON value (form_json)"),
+        formJson: z.union([z.record(z.string(), z.unknown()), z.string()]).optional().describe("New form field schema as a JSON object (form_json). Pass the object itself; a JSON-encoded string will be parsed."),
         vanityUrl: z.string().optional().describe("New vanity URL slug"),
         recipient: z.string().optional().describe("Comma-separated email addresses that receive submission notifications"),
         active: z.boolean().optional().describe("Set the form's active status"),

@@ -156,6 +156,25 @@ export type FormsClientOptions = {
   http?: HttpRequest
 }
 
+// Clients sometimes pass the form schema as a JSON-encoded string; the Paubox
+// renderer expects an object, so normalize before writing.
+export function normalizeFormJson(value: unknown): Record<string, unknown> {
+  let result = value
+  for (let i = 0; i < 3 && typeof result === 'string'; i++) {
+    try {
+      result = JSON.parse(result)
+    } catch {
+      throw new Error('formJson must be a JSON object; received a string that is not valid JSON.')
+    }
+  }
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) {
+    throw new Error(
+      'formJson must be a JSON object (e.g. {"fields": [...]}), not a string, array, or primitive.',
+    )
+  }
+  return result as Record<string, unknown>
+}
+
 // Shared error mapping for the authenticated forms endpoints. The backend
 // accepts any API key carrying the "forms" scope as a bearer token, so a
 // 401 always means the key itself is bad or under-scoped.
@@ -234,7 +253,7 @@ export function createFormsClient({
     async createForm(params: CreateFormParams): Promise<{ id: string }> {
       const body: Record<string, unknown> = {
         title: params.title,
-        form_json: params.formJson,
+        form_json: normalizeFormJson(params.formJson),
         customer_id: params.customerId,
         version: params.version ?? 1,
       }
@@ -269,7 +288,7 @@ export function createFormsClient({
       const body: Record<string, unknown> = {}
       if (updates.title !== undefined) body.title = updates.title
       if (updates.description !== undefined) body.description = updates.description
-      if (updates.formJson !== undefined) body.form_json = updates.formJson
+      if (updates.formJson !== undefined) body.form_json = normalizeFormJson(updates.formJson)
       if (updates.vanityUrl !== undefined) body.vanity_url = updates.vanityUrl
       if (updates.recipient !== undefined) body.recipient = updates.recipient
       if (updates.active !== undefined) body.active = updates.active

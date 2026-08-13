@@ -5,6 +5,7 @@
 
 import {
   createFormsClient,
+  normalizeFormJson,
   PauboxFormsError,
   HttpRequest,
   FORMS_BASE_URL,
@@ -229,5 +230,85 @@ describe('createFormsClient requests', () => {
     expect(pdf.toString('utf8')).toBe('%PDF-1.4')
     expect(calls[0].url).toBe(`${FORMS_BASE_URL}/api/forms/f1/submissions/s1/submission-pdf`)
     expect(calls[0].responseType).toBe('arraybuffer')
+  })
+})
+
+describe('normalizeFormJson', () => {
+  it('passes a plain object through unchanged', () => {
+    const schema = { fields: [{ type: 'text', label: 'Name' }] }
+    expect(normalizeFormJson(schema)).toBe(schema)
+  })
+
+  it('parses a JSON-encoded string into the object', () => {
+    expect(normalizeFormJson('{"fields":[{"type":"text"}]}')).toEqual({
+      fields: [{ type: 'text' }],
+    })
+  })
+
+  it('unwraps a double-encoded string', () => {
+    const doubleEncoded = JSON.stringify(JSON.stringify({ fields: [] }))
+    expect(normalizeFormJson(doubleEncoded)).toEqual({ fields: [] })
+  })
+
+  it('throws on a string that is not valid JSON', () => {
+    expect(() => normalizeFormJson('not json')).toThrow(
+      'formJson must be a JSON object; received a string that is not valid JSON.',
+    )
+  })
+
+  it('throws on an array', () => {
+    expect(() => normalizeFormJson([{ type: 'text' }])).toThrow(
+      'formJson must be a JSON object (e.g. {"fields": [...]}), not a string, array, or primitive.',
+    )
+  })
+
+  it('throws on a number', () => {
+    expect(() => normalizeFormJson(42)).toThrow(/not a string, array, or primitive/)
+  })
+
+  it('throws on null', () => {
+    expect(() => normalizeFormJson(null)).toThrow(/not a string, array, or primitive/)
+  })
+})
+
+describe('formJson normalization at write sites', () => {
+  it('createForm parses a stringified formJson before sending', async () => {
+    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: { id: 'new-id' } }))
+    await client(fn).createForm({
+      title: 'Intake',
+      formJson: '{"fields":[{"type":"text","label":"Name"}]}',
+      customerId: 9,
+    })
+    const body = calls[0].data as Record<string, unknown>
+    expect(typeof body.form_json).not.toBe('string')
+    expect(body.form_json).toEqual({ fields: [{ type: 'text', label: 'Name' }] })
+  })
+
+  it('createForm sends an object formJson as-is', async () => {
+    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: { id: 'new-id' } }))
+    const schema = { fields: [{ type: 'email' }] }
+    await client(fn).createForm({ title: 'Intake', formJson: schema, customerId: 9 })
+    const body = calls[0].data as Record<string, unknown>
+    expect(body.form_json).toEqual(schema)
+  })
+
+  it('updateForm parses a stringified formJson before sending', async () => {
+    const { fn, calls } = fakeHttp(async () => ({
+      status: 200,
+      data: { detail: 'updated', form_id: 'f1' },
+    }))
+    await client(fn).updateForm('f1', { formJson: '{"fields":[]}' })
+    const body = calls[0].data as Record<string, unknown>
+    expect(typeof body.form_json).not.toBe('string')
+    expect(body.form_json).toEqual({ fields: [] })
+  })
+
+  it('updateForm omits form_json when formJson is not provided', async () => {
+    const { fn, calls } = fakeHttp(async () => ({
+      status: 200,
+      data: { detail: 'updated', form_id: 'f1' },
+    }))
+    await client(fn).updateForm('f1', { title: 'Renamed' })
+    expect(calls[0].data).toEqual({ title: 'Renamed' })
   })
 })

@@ -166,6 +166,25 @@ function formsErrorMessage(status: number, body: string): string {
   return `Paubox Forms API error (HTTP ${status})${detail}`
 }
 
+// Clients sometimes pass the form schema as a JSON-encoded string; the Paubox
+// renderer expects an object, so normalize before writing.
+function normalizeFormJson(value: unknown): Record<string, unknown> {
+  let result = value
+  for (let i = 0; i < 3 && typeof result === "string"; i++) {
+    try {
+      result = JSON.parse(result)
+    } catch {
+      throw new Error("formJson must be a JSON object; received a string that is not valid JSON.")
+    }
+  }
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    throw new Error(
+      'formJson must be a JSON object (e.g. {"fields": [...]}), not a string, array, or primitive.'
+    )
+  }
+  return result as Record<string, unknown>
+}
+
 const FETCH_TIMEOUT_MS = 15000
 
 async function formsRequest(
@@ -436,7 +455,11 @@ server.tool(
   "Create a new Paubox Form. Provide a title, the form field definitions as JSON (form_json), and the owning customer ID. Returns the new form's UUID.",
   {
     title: z.string().min(1, "Title is required"),
-    formJson: z.unknown().describe("Form field definitions as a JSON value (form_json)"),
+    formJson: z
+      .union([z.record(z.string(), z.unknown()), z.string()])
+      .describe(
+        "Form field schema as a JSON object (form_json). Pass the object itself; a JSON-encoded string will be parsed."
+      ),
     customerId: z.number().int().describe("Customer ID that will own the form"),
     description: z.string().optional(),
     formHtml: z.string().optional().describe("Rendered HTML for the form"),
@@ -487,7 +510,7 @@ server.tool(
       }
       const body: Record<string, unknown> = {
         title,
-        form_json: formJson,
+        form_json: normalizeFormJson(formJson),
         customer_id: customerId,
         version: version ?? 1,
         active: active ?? false,
@@ -528,7 +551,12 @@ server.tool(
     formId: z.string().min(1, "Form ID is required"),
     title: z.string().optional(),
     description: z.string().optional(),
-    formJson: z.unknown().optional().describe("Replacement form field definitions as a JSON value (form_json)"),
+    formJson: z
+      .union([z.record(z.string(), z.unknown()), z.string()])
+      .optional()
+      .describe(
+        "Replacement form field schema as a JSON object (form_json). Pass the object itself; a JSON-encoded string will be parsed."
+      ),
     vanityUrl: z.string().optional(),
     recipient: z
       .string()
@@ -560,7 +588,7 @@ server.tool(
       const body: Record<string, unknown> = {}
       if (title !== undefined) body.title = title
       if (description !== undefined) body.description = description
-      if (formJson !== undefined) body.form_json = formJson
+      if (formJson !== undefined) body.form_json = normalizeFormJson(formJson)
       if (vanityUrl !== undefined) body.vanity_url = vanityUrl
       if (recipient !== undefined) body.recipient = recipient
       if (active !== undefined) body.active = active
