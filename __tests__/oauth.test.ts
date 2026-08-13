@@ -4,13 +4,16 @@
 // - /oauth/authorize (GET form rendering, POST code issuance)
 // - /oauth/token (PKCE verification, error cases, full flow)
 // - MCP route Bearer token credential resolution
+//
+// Only an apiKey is collected/embedded — Paubox no longer requires an API
+// username. Legacy tokens/form fields that still carry apiUser must be
+// tolerated and ignored.
 
 process.env.JWT_SECRET = 'test-jwt-secret-for-oauth-tests-min-32-chars'
 process.env.PAUBOX_API_KEY = 'test-key'
-process.env.PAUBOX_API_USER = 'test-user'
 
-import { createHash } from 'crypto'
-import { jwtDecrypt } from 'jose'
+import { createHash, randomUUID } from 'crypto'
+import { EncryptJWT, jwtDecrypt } from 'jose'
 import request from 'supertest'
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -42,49 +45,98 @@ const TEST_CODE_CHALLENGE = computeChallenge(TEST_CODE_VERIFIER)
 const LOCALHOST_REDIRECT = 'http://localhost:9999/callback'
 const CLAUDE_REDIRECT = 'https://claude.ai/api/mcp/auth_callback'
 
+// validate_credentials echoes the apiKey masked to its first 4 chars —
+// used to tell which credential a request actually resolved.
+const masked = (key: string) => key.slice(0, 4) + '*'.repeat(Math.max(0, key.length - 4))
+
+// Same key derivation as lib/oauth-jwt's getEncryptionKey — used to
+// craft legacy tokens and to decrypt tokens for claim inspection.
+const encryptionKey = () =>
+  createHash('sha256').update(`paubox-mcp-jwe:${process.env.JWT_SECRET}`).digest()
+
 // ─── JWT utilities ────────────────────────────────────────────────────────────
 
 describe('lib/oauth-jwt', () => {
   it('signAuthCode / verifyAuthCode round-trip preserves payload', async () => {
     const token = await signAuthCode({
       apiKey: 'pk_test_key',
-      apiUser: 'user@example.com',
       codeChallenge: TEST_CODE_CHALLENGE,
       redirectUri: LOCALHOST_REDIRECT,
     })
     const payload = await verifyAuthCode(token)
     expect(payload.type).toBe('auth_code')
     expect(payload.apiKey).toBe('pk_test_key')
-    expect(payload.apiUser).toBe('user@example.com')
     expect(payload.codeChallenge).toBe(TEST_CODE_CHALLENGE)
     expect(payload.redirectUri).toBe(LOCALHOST_REDIRECT)
   })
 
   it('signAccessToken / verifyAccessToken round-trip preserves payload', async () => {
-    const token = await signAccessToken({ apiKey: 'ak', apiUser: 'u@example.com' })
+    const token = await signAccessToken({ apiKey: 'ak' })
     const payload = await verifyAccessToken(token)
     expect(payload.type).toBe('access_token')
     expect(payload.apiKey).toBe('ak')
-    expect(payload.apiUser).toBe('u@example.com')
   })
 
   it('verifyAuthCode rejects an access token (wrong type)', async () => {
-    const accessToken = await signAccessToken({ apiKey: 'ak', apiUser: 'u@example.com' })
+    const accessToken = await signAccessToken({ apiKey: 'ak' })
     await expect(verifyAuthCode(accessToken)).rejects.toThrow()
   })
 
   it('verifyAccessToken rejects an auth code token (wrong type)', async () => {
     const authCode = await signAuthCode({
-      apiKey: 'ak', apiUser: 'u@example.com',
+      apiKey: 'ak',
       codeChallenge: TEST_CODE_CHALLENGE, redirectUri: LOCALHOST_REDIRECT,
     })
     await expect(verifyAccessToken(authCode)).rejects.toThrow()
   })
 
   it('verifyAccessToken rejects a tampered token', async () => {
-    const token = await signAccessToken({ apiKey: 'ak', apiUser: 'u@example.com' })
+    const token = await signAccessToken({ apiKey: 'ak' })
     const tampered = token.slice(0, -4) + 'XXXX'
     await expect(verifyAccessToken(tampered)).rejects.toThrow()
+  })
+})
+
+// ─── Legacy tokens that still carry apiUser ───────────────────────────────────
+
+describe('legacy tokens carrying an apiUser claim', () => {
+  it('verifyAccessToken accepts an old access token that still carries apiUser', async () => {
+    const legacyToken = await new EncryptJWT({
+      type: 'access_token',
+      apiKey: 'pk_legacy_access_1234567890',
+      apiUser: 'legacy-user@example.com',
+    })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .encrypt(encryptionKey())
+
+    const payload = await verifyAccessToken(legacyToken)
+    expect(payload.apiKey).toBe('pk_legacy_access_1234567890')
+  })
+
+  it('POST /oauth/token refresh grant accepts an old refresh token that still carries apiUser', async () => {
+    const legacyRefresh = await new EncryptJWT({
+      type: 'refresh_token',
+      apiKey: 'pk_legacy_refresh_1234567890',
+      apiUser: 'legacy-user@example.com',
+    })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime('30d')
+      .encrypt(encryptionKey())
+
+    const res = await request(testServer.baseUrl)
+      .post('/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token', refresh_token: legacyRefresh })
+
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.text)
+    const payload = await verifyAccessToken(body.access_token)
+    expect(payload.apiKey).toBe('pk_legacy_refresh_1234567890')
   })
 })
 
@@ -123,7 +175,7 @@ describe('GET /.well-known/oauth-authorization-server', () => {
 // ─── /oauth/authorize ─────────────────────────────────────────────────────────
 
 describe('GET /oauth/authorize', () => {
-  it('renders the Configure Paubox credential form for valid params', async () => {
+  it('renders the Configure Paubox credential form asking only for an apiKey', async () => {
     const res = await request(testServer.baseUrl)
       .get('/oauth/authorize')
       .query({
@@ -138,8 +190,9 @@ describe('GET /oauth/authorize', () => {
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toContain('text/html')
     expect(res.text).toContain('Configure Paubox')
-    expect(res.text).toContain('name="apiUser"')
     expect(res.text).toContain('name="apiKey"')
+    // The API username field is gone — only the key authenticates.
+    expect(res.text).not.toContain('name="apiUser"')
   })
 
   it('accepts https://claude.ai/api/mcp/auth_callback as redirect_uri', async () => {
@@ -184,7 +237,7 @@ describe('GET /oauth/authorize', () => {
 })
 
 describe('POST /oauth/authorize', () => {
-  it('redirects with authorization code and state when credentials are provided', async () => {
+  it('redirects with authorization code and state when an apiKey is provided (no apiUser needed)', async () => {
     const res = await request(testServer.baseUrl)
       .post('/oauth/authorize')
       .type('form')
@@ -195,7 +248,6 @@ describe('POST /oauth/authorize', () => {
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser: 'user@example.com',
         apiKey: 'pk_test_valid_api_key_1234567890',
       })
 
@@ -207,23 +259,22 @@ describe('POST /oauth/authorize', () => {
     expect(location).toContain(LOCALHOST_REDIRECT)
   })
 
-  it('re-renders form with error when apiUser is empty', async () => {
+  it('ignores a legacy apiUser form field and still issues a code', async () => {
     const res = await request(testServer.baseUrl)
       .post('/oauth/authorize')
       .type('form')
       .send({
         redirect_uri: LOCALHOST_REDIRECT,
-        state: 'state',
+        state: 'legacy-state',
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser: '',
+        apiUser: 'legacy-user@example.com',
         apiKey: 'pk_test_valid_api_key_1234567890',
       })
 
-    expect(res.status).toBe(200)
-    expect(res.headers['content-type']).toContain('text/html')
-    expect(res.text).toContain('required')
+    expect(res.status).toBe(302)
+    expect(res.headers['location']).toContain('code=')
   })
 
   it('re-renders form with error when apiKey is empty', async () => {
@@ -236,7 +287,6 @@ describe('POST /oauth/authorize', () => {
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser: 'user@example.com',
         apiKey: '',
       })
 
@@ -253,7 +303,6 @@ describe('POST /oauth/authorize', () => {
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser: 'user@example.com',
         apiKey: 'pk_test_valid_api_key_1234567890',
       })
 
@@ -264,7 +313,7 @@ describe('POST /oauth/authorize', () => {
 // ─── /oauth/token ─────────────────────────────────────────────────────────────
 
 describe('POST /oauth/token', () => {
-  async function getCode(apiKey: string, apiUser: string): Promise<string> {
+  async function getCode(apiKey: string): Promise<string> {
     const res = await request(testServer.baseUrl)
       .post('/oauth/authorize')
       .type('form')
@@ -274,15 +323,14 @@ describe('POST /oauth/token', () => {
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser,
         apiKey,
       })
     const location = res.headers['location'] as string
     return new URL(location).searchParams.get('code')!
   }
 
-  it('issues an access token encoding apiKey and apiUser', async () => {
-    const code = await getCode('pk_test_valid_key_1234567890', 'token-user@example.com')
+  it('issues an access token encoding only the apiKey', async () => {
+    const code = await getCode('pk_test_valid_key_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -304,7 +352,8 @@ describe('POST /oauth/token', () => {
 
     const payload = await verifyAccessToken(body.access_token)
     expect(payload.apiKey).toBe('pk_test_valid_key_1234567890')
-    expect(payload.apiUser).toBe('token-user@example.com')
+    // No apiUser claim is minted anymore.
+    expect((payload as unknown as Record<string, unknown>).apiUser).toBeUndefined()
   })
 
   it('rejects unsupported grant_type', async () => {
@@ -338,7 +387,7 @@ describe('POST /oauth/token', () => {
   })
 
   it('rejects a wrong code_verifier (PKCE mismatch)', async () => {
-    const code = await getCode('pk_test_valid_key_1234567890', 'user@example.com')
+    const code = await getCode('pk_test_valid_key_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -355,7 +404,7 @@ describe('POST /oauth/token', () => {
   })
 
   it('rejects a redirect_uri that does not match the one in the auth code', async () => {
-    const code = await getCode('pk_test_valid_key_1234567890', 'user@example.com')
+    const code = await getCode('pk_test_valid_key_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -372,7 +421,7 @@ describe('POST /oauth/token', () => {
   })
 
   it('rejects missing code_verifier', async () => {
-    const code = await getCode('pk_test_valid_key_1234567890', 'user@example.com')
+    const code = await getCode('pk_test_valid_key_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -389,7 +438,7 @@ describe('POST /oauth/token', () => {
   })
 
   it('rejects an authorization code that has already been redeemed (single-use)', async () => {
-    const code = await getCode('pk_test_replay_key_1234567890', 'replay-user@example.com')
+    const code = await getCode('pk_test_replay_key_1234567890')
 
     const first = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -419,7 +468,7 @@ describe('POST /oauth/token', () => {
   })
 
   it('sets Cache-Control: no-store and Pragma: no-cache on success responses', async () => {
-    const code = await getCode('pk_test_cache_key_1234567890', 'cache-user@example.com')
+    const code = await getCode('pk_test_cache_key_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -487,11 +536,9 @@ describe('GET /oauth/authorize — XSS protection', () => {
 // ─── MCP route — Bearer token path ────────────────────────────────────────────
 
 describe('MCP route — Bearer token credential resolution', () => {
-  it('uses credentials from Bearer access token when no x-paubox headers are set', async () => {
-    const accessToken = await signAccessToken({
-      apiKey: 'pk_test_bearer_key_1234567890',
-      apiUser: 'bearer-user@example.com',
-    })
+  it('uses the apiKey from a Bearer access token when no x-paubox headers are set', async () => {
+    const bearerKey = 'brk_test_bearer_key_1234567890'
+    const accessToken = await signAccessToken({ apiKey: bearerKey })
 
     const res = await request(testServer.baseUrl)
       .post('/mcp')
@@ -510,23 +557,24 @@ describe('MCP route — Bearer token credential resolution', () => {
     if (match) {
       const data = JSON.parse(match[1])
       expect(data.result.content[0].text).toContain('✅ Credentials validated successfully')
-      expect(data.result.content[0].text).toContain('bearer-user@example.com')
+      expect(data.result.content[0].text).toContain(masked(bearerKey))
     }
   })
 
-  it('x-paubox headers take priority over a Bearer token', async () => {
-    const accessToken = await signAccessToken({
-      apiKey: 'pk_test_bearer_key_1234567890',
-      apiUser: 'bearer-user@example.com',
-    })
+  it('x-paubox-api-key header takes priority over a Bearer token (legacy x-paubox-api-user is ignored)', async () => {
+    const bearerKey = 'brk_test_bearer_key_1234567890'
+    const headerKey = 'hdr_test_header_key_0987654321'
+    const accessToken = await signAccessToken({ apiKey: bearerKey })
 
     const res = await request(testServer.baseUrl)
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
       .set('Authorization', `Bearer ${accessToken}`)
-      .set('x-paubox-api-key', 'pk_test_header_key_0987654321')
-      .set('x-paubox-api-user', 'header-user@example.com')
+      .set('x-paubox-api-key', headerKey)
+      // Legacy clients may still send this header — it must be ignored,
+      // never required, never an error.
+      .set('x-paubox-api-user', 'legacy-header-user@example.com')
       .send({
         jsonrpc: '2.0', id: 2,
         method: 'tools/call',
@@ -538,17 +586,15 @@ describe('MCP route — Bearer token credential resolution', () => {
     expect(match).toBeTruthy()
     if (match) {
       const data = JSON.parse(match[1])
-      expect(data.result.content[0].text).toContain('header-user@example.com')
-      expect(data.result.content[0].text).not.toContain('bearer-user@example.com')
+      expect(data.result.content[0].text).toContain(masked(headerKey))
+      expect(data.result.content[0].text).not.toContain(masked(bearerKey))
     }
   })
 
   it('returns 401 with resource_metadata WWW-Authenticate when no auth is provided (RFC 9728)', async () => {
     // Temporarily clear env-var fallback so the unauthenticated path triggers.
     const savedKey = process.env.PAUBOX_API_KEY
-    const savedUser = process.env.PAUBOX_API_USER
     delete process.env.PAUBOX_API_KEY
-    delete process.env.PAUBOX_API_USER
 
     try {
       const res = await request(testServer.baseUrl)
@@ -562,7 +608,6 @@ describe('MCP route — Bearer token credential resolution', () => {
       expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/)
     } finally {
       process.env.PAUBOX_API_KEY = savedKey
-      process.env.PAUBOX_API_USER = savedUser
     }
   })
 
@@ -583,10 +628,8 @@ describe('MCP route — Bearer token credential resolution', () => {
   })
 
   it('accepts a lowercase `bearer` scheme (RFC 7235 §2.1 case-insensitive match)', async () => {
-    const accessToken = await signAccessToken({
-      apiKey: 'pk_test_lowercase_bearer_1234567890',
-      apiUser: 'lowercase-bearer@example.com',
-    })
+    const lowercaseKey = 'lcb_test_lowercase_bearer_1234567890'
+    const accessToken = await signAccessToken({ apiKey: lowercaseKey })
 
     const res = await request(testServer.baseUrl)
       .post('/mcp')
@@ -604,7 +647,7 @@ describe('MCP route — Bearer token credential resolution', () => {
     expect(match).toBeTruthy()
     if (match) {
       const data = JSON.parse(match[1])
-      expect(data.result.content[0].text).toContain('lowercase-bearer@example.com')
+      expect(data.result.content[0].text).toContain(masked(lowercaseKey))
     }
   })
 })
@@ -612,7 +655,7 @@ describe('MCP route — Bearer token credential resolution', () => {
 // ─── Refresh-token grant ──────────────────────────────────────────────────────
 
 describe('POST /oauth/token — refresh_token grant', () => {
-  async function getInitialTokens(apiKey: string, apiUser: string) {
+  async function getInitialTokens(apiKey: string) {
     const authRes = await request(testServer.baseUrl)
       .post('/oauth/authorize')
       .type('form')
@@ -622,7 +665,6 @@ describe('POST /oauth/token — refresh_token grant', () => {
         code_challenge: TEST_CODE_CHALLENGE,
         code_challenge_method: 'S256',
         response_type: 'code',
-        apiUser,
         apiKey,
       })
     const code = new URL(authRes.headers['location'] as string).searchParams.get('code')!
@@ -644,7 +686,7 @@ describe('POST /oauth/token — refresh_token grant', () => {
   }
 
   it('exchanges a refresh_token for a new access_token and rotated refresh_token', async () => {
-    const initial = await getInitialTokens('pk_test_rt_1234567890', 'rt-user@example.com')
+    const initial = await getInitialTokens('pk_test_rt_1234567890')
 
     const res = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -664,7 +706,6 @@ describe('POST /oauth/token — refresh_token grant', () => {
 
     const payload = await verifyAccessToken(body.access_token)
     expect(payload.apiKey).toBe('pk_test_rt_1234567890')
-    expect(payload.apiUser).toBe('rt-user@example.com')
   })
 
   it('stateless JWE refresh tokens are reusable until expiry (trade-off for multi-instance)', async () => {
@@ -673,7 +714,7 @@ describe('POST /oauth/token — refresh_token grant', () => {
     // issues a fresh access + refresh token pair. The trade-off is acceptable
     // because (a) tokens are encrypted, (b) they expire in 30 days, and (c)
     // users can revoke access by rotating their Paubox API key.
-    const initial = await getInitialTokens('pk_test_rt_replay_1234567890', 'rt-replay@example.com')
+    const initial = await getInitialTokens('pk_test_rt_replay_1234567890')
 
     const first = await request(testServer.baseUrl)
       .post('/oauth/token')
@@ -717,11 +758,10 @@ describe('POST /oauth/token — refresh_token grant', () => {
 
 describe('signAccessToken', () => {
   it('sets a finite exp claim (1h)', async () => {
-    const token = await signAccessToken({ apiKey: 'k', apiUser: 'u@example.com' })
-    // Token is now a JWE — decrypt with the same scheme `getEncryptionKey`
+    const token = await signAccessToken({ apiKey: 'k' })
+    // Token is a JWE — decrypt with the same scheme `getEncryptionKey`
     // uses so the test reads `exp`/`iat` without relying on JWS layout.
-    const key = createHash('sha256').update(`paubox-mcp-jwe:${process.env.JWT_SECRET}`).digest()
-    const { payload } = await jwtDecrypt(token, key, {
+    const { payload } = await jwtDecrypt(token, encryptionKey(), {
       keyManagementAlgorithms: ['dir'],
       contentEncryptionAlgorithms: ['A256GCM'],
     })
@@ -734,12 +774,10 @@ describe('signAccessToken', () => {
 // ─── Token-payload confidentiality (JWE) ──────────────────────────────────────
 
 describe('signAuthCode — payload confidentiality', () => {
-  it('produces an opaque token; apiKey/apiUser are not base64-decodable from any segment', async () => {
+  it('produces an opaque token; apiKey is not base64-decodable from any segment', async () => {
     const secretKey = 'pk_super_secret_must_not_leak_1234567890'
-    const secretUser = 'leak-canary@example.com'
     const token = await signAuthCode({
       apiKey: secretKey,
-      apiUser: secretUser,
       codeChallenge: TEST_CODE_CHALLENGE,
       redirectUri: LOCALHOST_REDIRECT,
     })
@@ -751,16 +789,14 @@ describe('signAuthCode — payload confidentiality', () => {
       if (!segment) continue
       const decoded = Buffer.from(segment, 'base64url').toString('binary')
       expect(decoded).not.toContain(secretKey)
-      expect(decoded).not.toContain(secretUser)
     }
   })
 })
 
 describe('signAccessToken — payload confidentiality', () => {
-  it('produces an opaque token; apiKey/apiUser are not base64-decodable from any segment', async () => {
+  it('produces an opaque token; apiKey is not base64-decodable from any segment', async () => {
     const secretKey = 'pk_super_secret_must_not_leak_in_access_token'
-    const secretUser = 'access-leak-canary@example.com'
-    const token = await signAccessToken({ apiKey: secretKey, apiUser: secretUser })
+    const token = await signAccessToken({ apiKey: secretKey })
 
     expect(token.split('.')).toHaveLength(5)
 
@@ -768,7 +804,6 @@ describe('signAccessToken — payload confidentiality', () => {
       if (!segment) continue
       const decoded = Buffer.from(segment, 'base64url').toString('binary')
       expect(decoded).not.toContain(secretKey)
-      expect(decoded).not.toContain(secretUser)
     }
   })
 })

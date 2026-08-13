@@ -1,6 +1,5 @@
 // Mock environment variables for all tests
 process.env.PAUBOX_API_KEY = 'test-key';
-process.env.PAUBOX_API_USER = 'test-user';
 
 import request from 'supertest';
 import next from 'next';
@@ -16,10 +15,18 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(3001, () => resolve()));
 }, 5000);
 
+// The API key alone authenticates — no x-paubox-api-user header is sent, so
+// every test here also proves key-only transport auth works.
 const TEST_AUTH_HEADERS = {
   'x-paubox-api-key': 'pk_test_valid_api_key_1234567890',
-  'x-paubox-api-user': 'test-user@example.com',
 };
+
+// Tool-call responses arrive as SSE (text/event-stream); parse the data line.
+function parseSse(text: string) {
+  const dataMatch = text.match(/data: (.+)/);
+  if (!dataMatch) throw new Error(`No SSE data line found in response: ${text.slice(0, 200)}`);
+  return JSON.parse(dataMatch[1]);
+}
 
 afterAll(async () => {
   server.closeAllConnections?.()
@@ -85,6 +92,29 @@ describe('Paubox MCP Server', () => {
         }
       });
 
+      it('should not expose an apiUser parameter in any tool schema', async () => {
+        const res = await request('http://localhost:3001')
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 100,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const tools: Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }> =
+          data.result.tools;
+        expect(tools.length).toBeGreaterThan(0);
+        for (const tool of tools) {
+          const properties = tool.inputSchema?.properties ?? {};
+          expect(Object.keys(properties)).not.toContain('apiUser');
+        }
+      });
+
       describe('validate_credentials tool', () => {
         it('should validate credentials successfully with valid input', async () => {
           const res = await request('http://localhost:3001')
@@ -99,15 +129,14 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'validate_credentials',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com'
+                  apiKey: 'pk_test_valid_api_key_1234567890'
                 }
               }
             });
 
           expect(res.statusCode).toBe(200);
           expect(res.body).toBeDefined();
-          
+
           // Check for either JSON-RPC format or direct response
           if (res.body.jsonrpc) {
             expect(res.body.jsonrpc).toBe('2.0');
@@ -135,8 +164,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'validate_credentials',
                 arguments: {
-                  apiKey: 'short',
-                  apiUser: 'test@example.com'
+                  apiKey: 'short'
                 }
               }
             });
@@ -156,7 +184,10 @@ describe('Paubox MCP Server', () => {
           }
         });
 
-        it('should reject missing API user', async () => {
+        // apiUser is no longer part of the credential model: the apiKey
+        // alone authenticates. A legacy client that still sends apiUser
+        // must be tolerated — the argument is ignored, never an error.
+        it('should validate successfully without apiUser, ignoring a legacy apiUser argument', async () => {
           const res = await request('http://localhost:3001')
             .post('/mcp')
             .set('Content-Type', 'application/json')
@@ -170,24 +201,29 @@ describe('Paubox MCP Server', () => {
                 name: 'validate_credentials',
                 arguments: {
                   apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: ''
+                  apiUser: 'legacy-user@example.com'
                 }
               }
             });
 
           expect(res.statusCode).toBe(200);
-          expect(res.body).toBeDefined();
-          
-          if (res.body.jsonrpc) {
-            expect(res.body.jsonrpc).toBe('2.0');
-            expect(res.body.id).toBe(4);
-            expect(res.body.result).toBeDefined();
-            expect(res.body.result.content).toBeDefined();
+          const data = parseSse(res.text);
+          expect(data.jsonrpc).toBe('2.0');
+          expect(data.id).toBe(4);
+          expect(data.result).toBeDefined();
+          expect(data.result.isError).not.toBe(true);
 
-            const content = res.body.result.content[0];
-            expect(content.type).toBe('text');
-            expect(content.text).toContain('❌ Credential validation failed');
-          }
+          const content = data.result.content[0];
+          expect(content.type).toBe('text');
+          // The extra apiUser must never trip argument validation or the
+          // missing-credentials path. The call reaches the credential
+          // check itself: ✅ when the check is bypassed / soft-passes,
+          // or the live API's "Invalid API key" for the placeholder key.
+          expect(content.text).not.toContain('Invalid arguments');
+          expect(content.text).not.toContain('API key required');
+          expect(content.text).toMatch(
+            /✅ Credentials validated successfully|❌ Credential validation failed: Invalid API key\./
+          );
         });
       });
 
@@ -205,9 +241,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'send_secure_email',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com',
-                  from: 'sender@example.com',
+                  apiKey: 'pk_test_valid_api_key_1234567890',                  from: 'sender@example.com',
                   to: ['recipient@example.com'],
                   subject: 'Test Email',
                   message: 'This is a test email'
@@ -238,9 +272,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'send_secure_email',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com',
-                  from: 'invalid-email',
+                  apiKey: 'pk_test_valid_api_key_1234567890',                  from: 'invalid-email',
                   to: ['recipient@example.com'],
                   subject: 'Test Email',
                   message: 'This is a test email'
@@ -270,9 +302,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'send_secure_email',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com',
-                  from: 'sender@example.com',
+                  apiKey: 'pk_test_valid_api_key_1234567890',                  from: 'sender@example.com',
                   to: ['recipient@example.com'],
                   subject: 'Test Email',
                   message: 'This is a test email',
@@ -308,9 +338,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'check_email_status',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com',
-                  sourceTrackingId: 'tracking_id_123'
+                  apiKey: 'pk_test_valid_api_key_1234567890',                  sourceTrackingId: 'tracking_id_123'
                 }
               }
             });
@@ -338,9 +366,7 @@ describe('Paubox MCP Server', () => {
               params: {
                 name: 'check_email_status',
                 arguments: {
-                  apiKey: 'pk_test_valid_api_key_1234567890',
-                  apiUser: 'test@example.com',
-                  sourceTrackingId: ''
+                  apiKey: 'pk_test_valid_api_key_1234567890',                  sourceTrackingId: ''
                 }
               }
             });
@@ -398,7 +424,9 @@ describe('Paubox MCP Server', () => {
         }
       });
 
-      it('should handle missing required parameters', async () => {
+      // apiKey is the only credential — a call carrying nothing but the
+      // apiKey must succeed, not error with a missing-parameter complaint.
+      it('should treat apiKey as the only required credential', async () => {
         const res = await request('http://localhost:3001')
           .post('/mcp')
           .set('Content-Type', 'application/json')
@@ -412,17 +440,24 @@ describe('Paubox MCP Server', () => {
               name: 'validate_credentials',
               arguments: {
                 apiKey: 'pk_test_valid_api_key_1234567890'
-                // Missing apiUser
               }
             }
           });
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toBeDefined();
-        
-        if (res.body.error) {
-          expect(res.body.error).toBeDefined();
-        }
+        const data = parseSse(res.text);
+        expect(data.jsonrpc).toBe('2.0');
+        expect(data.id).toBe(11);
+        expect(data.result).toBeDefined();
+        expect(data.result.isError).not.toBe(true);
+        // No "missing apiUser" complaint: the call must get past argument
+        // validation and credential resolution with the apiKey alone.
+        const text = data.result.content[0].text;
+        expect(text).not.toContain('Invalid arguments');
+        expect(text).not.toContain('API key required');
+        expect(text).toMatch(
+          /✅ Credentials validated successfully|❌ Credential validation failed: Invalid API key\./
+        );
       });
     });
   });

@@ -138,8 +138,7 @@ export default function Home() {
             <CardContent className="text-blue-800">
               <p className="mb-4">
                 This MCP server allows you to use your existing Paubox account
-                with AI assistants. Simply provide your API credentials when
-                prompted.
+                with AI assistants. Simply provide your API key when prompted.
               </p>
               <div className="space-y-2 text-sm">
                 <p>
@@ -167,7 +166,7 @@ export default function Home() {
                 className="text-sm"
                 style={{ color: pauboxTheme.card.footer.text }}
               >
-                Requires Paubox Email API credentials
+                Requires a Paubox Email API key
               </p>
               <Button
                 variant="outline"

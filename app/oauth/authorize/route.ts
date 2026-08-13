@@ -161,12 +161,6 @@ function renderForm(p: FormParams): Response {
       <input type="hidden" name="response_type"         value="${escapeHtml(p.responseType)}">
 
       <div class="field">
-        <label>Paubox API Username <span class="required">(Required)</span></label>
-        <p class="desc">The endpoint username for your sending domain. In the Paubox dashboard, go to Email API → your domain → the "Endpoint Username" field (e.g. <strong>api_user</strong>).</p>
-        <input type="text" name="apiUser" placeholder="api_user" autocomplete="username" required>
-      </div>
-
-      <div class="field">
         <label>Paubox API Key <span class="required">(Required)</span></label>
         <p class="desc">An API key for your sending domain. In the Paubox dashboard, go to Email API → your domain → API Keys.</p>
         <input type="password" name="apiKey" placeholder="Your API key" autocomplete="current-password" required>
@@ -261,7 +255,6 @@ export async function POST(request: NextRequest) {
   const codeChallengeMethod = formData.get('code_challenge_method')?.toString() ?? 'S256'
   const responseType = formData.get('response_type')?.toString() ?? 'code'
   const apiKey = formData.get('apiKey')?.toString().trim() ?? ''
-  const apiUser = formData.get('apiUser')?.toString().trim() ?? ''
 
   if (!isValidRedirectUri(redirectUri)) {
     return new Response('invalid_redirect_uri', { status: 400 })
@@ -272,17 +265,17 @@ export async function POST(request: NextRequest) {
     return new Response('invalid_request', { status: 400 })
   }
 
-  if (!apiKey || !apiUser) {
+  if (!apiKey) {
     return renderForm({
       clientId, redirectUri, state, codeChallenge, codeChallengeMethod, responseType,
-      error: 'Both API Username and API Key are required.',
+      error: 'API Key is required.',
     })
   }
 
   // Fail fast on typos / expired keys. A Paubox outage or 5xx soft-passes
   // here (see checkPauboxCredentials) so a backend incident doesn't block
   // all new connector adds.
-  const credCheck = await checkPauboxCredentials(apiKey, apiUser)
+  const credCheck = await checkPauboxCredentials(apiKey)
   if (!credCheck.ok) {
     return renderForm({
       clientId, redirectUri, state, codeChallenge, codeChallengeMethod, responseType,
@@ -290,7 +283,7 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  const code = await signAuthCode({ apiKey, apiUser, codeChallenge, redirectUri })
+  const code = await signAuthCode({ apiKey, codeChallenge, redirectUri })
 
   const callbackUrl = new URL(redirectUri)
   callbackUrl.searchParams.set('code', code)

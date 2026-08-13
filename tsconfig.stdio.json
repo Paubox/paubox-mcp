@@ -11,6 +11,6 @@
     "noEmit": false,
     "types": ["node"]
   },
-  "include": ["src/stdio.ts", "src/paubox-node.d.ts"],
+  "include": ["src/stdio.ts"],
   "exclude": ["node_modules"]
 }

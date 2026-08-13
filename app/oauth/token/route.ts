@@ -82,11 +82,8 @@ export async function POST(request: Request) {
 
     markAuthCodeConsumed(authCodePayload.jti)
 
-    const accessToken = await signAccessToken({
-      apiKey: authCodePayload.apiKey,
-      apiUser: authCodePayload.apiUser,
-    })
-    const refreshToken = await issueRefreshToken(authCodePayload.apiKey, authCodePayload.apiUser)
+    const accessToken = await signAccessToken({ apiKey: authCodePayload.apiKey })
+    const refreshToken = await issueRefreshToken(authCodePayload.apiKey)
     return tokenResponse(accessToken, refreshToken)
   }
 
@@ -99,11 +96,8 @@ export async function POST(request: Request) {
       return errorJson('invalid_grant', 'Refresh token is invalid or expired', 401)
     }
 
-    const accessToken = await signAccessToken({
-      apiKey: creds.apiKey,
-      apiUser: creds.apiUser,
-    })
-    const newRefreshToken = await issueRefreshToken(creds.apiKey, creds.apiUser)
+    const accessToken = await signAccessToken({ apiKey: creds.apiKey })
+    const newRefreshToken = await issueRefreshToken(creds.apiKey)
     return tokenResponse(accessToken, newRefreshToken)
   }
 

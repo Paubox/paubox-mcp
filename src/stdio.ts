@@ -2,11 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import pauboxNode from "paubox-node"
 import { validateFormId } from "./validate-form-id.js"
 
 const apiKey = process.env.PAUBOX_API_KEY
-const apiUser = process.env.PAUBOX_API_USER
 
 if (!apiKey || apiKey.trim().length < 10) {
   process.stderr.write(
@@ -14,16 +12,134 @@ if (!apiKey || apiKey.trim().length < 10) {
   )
   process.exit(1)
 }
-if (!apiUser || apiUser.trim().length === 0) {
-  process.stderr.write("Error: PAUBOX_API_USER environment variable is required\n")
-  process.exit(1)
+
+const FETCH_TIMEOUT_MS = 15000
+
+// ---------------------------------------------------------------------------
+// Paubox Email API client (inlined; the stdio build cannot import from lib/)
+// ---------------------------------------------------------------------------
+
+const EMAIL_API_BASE_URL = "https://api.paubox.com/v1"
+
+interface SendMessageOptions {
+  from: string
+  to: string[]
+  subject: string
+  textContent: string
+  htmlContent: string
+  cc?: string[]
+  bcc?: string[]
+  forceSecureNotification?: boolean
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pauboxService: any = new pauboxNode.emailService({
-  apiKey: apiKey.trim(),
-  apiUsername: apiUser.trim(),
-})
+interface EmailApiResponse {
+  sourceTrackingId?: string
+  data?: { message_id?: string }
+  errors?: unknown
+}
+
+async function emailRequest(
+  path: string,
+  options: { method?: string; body?: unknown } = {}
+): Promise<EmailApiResponse> {
+  const response = await fetch(`${EMAIL_API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Token token=${apiKey!.trim()}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+
+  let rawBody = ""
+  try {
+    rawBody = await response.text()
+  } catch {
+    // ignore unreadable bodies
+  }
+  let payload: unknown
+  try {
+    payload = rawBody ? JSON.parse(rawBody) : undefined
+  } catch {
+    payload = undefined
+  }
+
+  if (!response.ok) {
+    const detail = extractEmailErrorDetail(payload) ?? (rawBody ? rawBody.slice(0, 300) : "")
+    throw new Error(
+      `Paubox Email API error (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
+    )
+  }
+
+  const record = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >
+  // Mirror paubox-node semantics: a response with none of data /
+  // sourceTrackingId / errors is treated as an error.
+  if (
+    record.data === undefined &&
+    record.sourceTrackingId === undefined &&
+    record.errors === undefined
+  ) {
+    throw new Error("Unexpected response from the Paubox Email API")
+  }
+  if (record.errors !== undefined && record.data === undefined && record.sourceTrackingId === undefined) {
+    const detail = extractEmailErrorDetail(record)
+    throw new Error(detail ?? "The Paubox Email API returned errors")
+  }
+  return record as EmailApiResponse
+}
+
+function extractEmailErrorDetail(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined
+  const errors = (payload as Record<string, unknown>).errors
+  if (!Array.isArray(errors) || errors.length === 0) return undefined
+  const parts = errors
+    .map((err) => {
+      if (typeof err === "object" && err !== null) {
+        const record = err as Record<string, unknown>
+        return [record.title, record.details].filter((v) => typeof v === "string").join(" - ")
+      }
+      return typeof err === "string" ? err : ""
+    })
+    .filter((part) => part.length > 0)
+  return parts.length > 0 ? parts.join("; ") : undefined
+}
+
+async function sendMessage(options: SendMessageOptions): Promise<EmailApiResponse> {
+  return emailRequest("/messages", {
+    method: "POST",
+    body: {
+      data: {
+        message: {
+          recipients: options.to,
+          cc: options.cc ?? null,
+          bcc: options.bcc ?? null,
+          headers: {
+            subject: options.subject,
+            from: options.from,
+            "reply-to": null,
+          },
+          content: {
+            "text/plain": options.textContent,
+            "text/html": Buffer.from(options.htmlContent, "utf-8").toString("base64"),
+          },
+          attachments: [],
+          allowNonTLS: false,
+          forceSecureNotification: options.forceSecureNotification ?? false,
+        },
+      },
+    },
+  })
+}
+
+async function getEmailDisposition(sourceTrackingId: string): Promise<EmailApiResponse> {
+  return emailRequest(
+    `/message_receipt?sourceTrackingId=${encodeURIComponent(sourceTrackingId)}`
+  )
+}
 
 const server = new McpServer({ name: "paubox", version: "1.0.0" })
 
@@ -37,7 +153,7 @@ server.tool(
       content: [
         {
           type: "text" as const,
-          text: `Credentials configured\n\nAPI User: ${apiUser}\nAPI Key: ${masked}\n\nReady to send email with send_secure_email.`,
+          text: `Credentials configured\n\nAPI Key: ${masked}\n\nReady to send email with send_secure_email.`,
         },
       ],
     }
@@ -74,26 +190,22 @@ server.tool(
     forceSecureNotification?: boolean
   }) => {
     try {
-      const emailMessage = new pauboxNode.message({
+      const response = await sendMessage({
         from,
         to,
-        cc: cc ?? null,
-        bcc: bcc ?? null,
+        cc,
+        bcc,
         subject,
-        text_content: message.trim(),
-        html_content: `<p>${message.trim()}</p>`,
-        forceSecureNotification: forceSecureNotification ?? false,
-        attachments: [],
+        textContent: message.trim(),
+        htmlContent: `<p>${message.trim()}</p>`,
+        forceSecureNotification,
       })
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response: any = await pauboxService.sendMessage(emailMessage)
 
       return {
         content: [
           {
             type: "text" as const,
-            text: `Email sent\n\nFrom: ${from}\nTo: ${to.join(", ")}\nSubject: ${subject}\nSource Tracking ID: ${response.sourceTrackingId}\nMessage ID: ${response.data.message_id}\n\nSave the Source Tracking ID to check delivery status later.`,
+            text: `Email sent\n\nFrom: ${from}\nTo: ${to.join(", ")}\nSubject: ${subject}\nSource Tracking ID: ${response.sourceTrackingId}\nMessage ID: ${response.data?.message_id}\n\nSave the Source Tracking ID to check delivery status later.`,
           },
         ],
       }
@@ -118,8 +230,7 @@ server.tool(
   },
   async ({ sourceTrackingId }: { sourceTrackingId: string }) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response: any = await pauboxService.getEmailDisposition(sourceTrackingId.trim())
+      const response = await getEmailDisposition(sourceTrackingId.trim())
 
       return {
         content: [
@@ -146,7 +257,7 @@ server.tool(
 // Paubox Forms tools
 // ---------------------------------------------------------------------------
 
-const FORMS_BASE_URL = "https://apx.paubox.com/forms"
+const FORMS_BASE_URL = "https://api.paubox.com/forms"
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"
@@ -184,8 +295,6 @@ function normalizeFormJson(value: unknown): Record<string, unknown> {
   }
   return result as Record<string, unknown>
 }
-
-const FETCH_TIMEOUT_MS = 15000
 
 async function formsRequest(
   path: string,

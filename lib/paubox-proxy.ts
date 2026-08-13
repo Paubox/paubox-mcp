@@ -4,7 +4,7 @@ import axios, { InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 export const PAUBOX_PROXY_CONFIG = {
   enabled: process.env.PAUBOX_PROXY_ENABLED === 'true',
   customBaseURL: process.env.PAUBOX_CUSTOM_BASE_URL || 'https://app.staging.paubox.net',
-  originalAPIDomain: 'https://api.paubox.net'
+  originalAPIDomain: 'https://api.paubox.com'
 }
 
 // Configure axios interceptors to proxy Paubox requests
@@ -17,7 +17,7 @@ export const configurePauboxProxy = () => {
   // Add request interceptor to modify URLs
   axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     // Check if this is a Paubox API request
-    if (config.baseURL && config.baseURL.includes('api.paubox.net')) {
+    if (config.baseURL && config.baseURL.includes('api.paubox.com')) {
       // Replace the base URL with your custom endpoint
       config.baseURL = config.baseURL.replace(
         PAUBOX_PROXY_CONFIG.originalAPIDomain, 

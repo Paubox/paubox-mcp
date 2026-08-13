@@ -1,6 +1,6 @@
 import axios, { AxiosRequestConfig } from 'axios'
 
-export const FORMS_BASE_URL = 'https://apx.paubox.com/forms'
+export const FORMS_BASE_URL = 'https://api.paubox.com/forms'
 
 // Minimal shape we need from the HTTP client — `axios.request` satisfies it.
 // Exposed so unit tests can inject a fake without depending on jest's

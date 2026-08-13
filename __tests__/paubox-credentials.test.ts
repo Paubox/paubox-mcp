@@ -20,83 +20,80 @@ function fakeGet(impl: (url: string, config: Parameters<HttpGet>[1]) => Promise<
 describe('checkPauboxCredentials', () => {
   it('returns ok:false when missing apiKey', async () => {
     const { fn, calls } = fakeGet(async () => ({ status: 200 }))
-    const result = await checkPauboxCredentials('', 'user@example.com', fn)
-    expect(result.ok).toBe(false)
-    expect(calls).toHaveLength(0)
-  })
-
-  it('returns ok:false when missing apiUser', async () => {
-    const { fn, calls } = fakeGet(async () => ({ status: 200 }))
-    const result = await checkPauboxCredentials('pk_test', '', fn)
+    const result = await checkPauboxCredentials('', fn)
     expect(result.ok).toBe(false)
     expect(calls).toHaveLength(0)
   })
 
   it('returns ok:false when Paubox responds 401', async () => {
     const { fn } = fakeGet(async () => ({ status: 401 }))
-    const result = await checkPauboxCredentials('pk_bad', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_bad', fn)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toMatch(/invalid/i)
   })
 
   it('returns ok:false when Paubox responds 403', async () => {
     const { fn } = fakeGet(async () => ({ status: 403 }))
-    const result = await checkPauboxCredentials('pk_test', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_test', fn)
     expect(result.ok).toBe(false)
   })
 
   it('returns ok:true when Paubox responds 404 (good creds, no such message)', async () => {
     const { fn } = fakeGet(async () => ({ status: 404 }))
-    const result = await checkPauboxCredentials('pk_good', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_good', fn)
     expect(result.ok).toBe(true)
   })
 
   it('returns ok:true when Paubox responds 200', async () => {
     const { fn } = fakeGet(async () => ({ status: 200 }))
-    const result = await checkPauboxCredentials('pk_good', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_good', fn)
     expect(result.ok).toBe(true)
   })
 
   it('soft-passes (ok:true) on network error', async () => {
     const { fn } = fakeGet(async () => { throw new Error('ECONNREFUSED') })
-    const result = await checkPauboxCredentials('pk_test', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_test', fn)
     expect(result.ok).toBe(true)
   })
 
   it('soft-passes (ok:true) on 5xx', async () => {
     const { fn } = fakeGet(async () => ({ status: 503 }))
-    const result = await checkPauboxCredentials('pk_test', 'user@example.com', fn)
+    const result = await checkPauboxCredentials('pk_test', fn)
     expect(result.ok).toBe(true)
   })
 
-  it('encodes apiUser into the URL path (no path injection)', async () => {
+  it('hits api.paubox.com with no username path segment', async () => {
     const { fn, calls } = fakeGet(async () => ({ status: 200 }))
-    await checkPauboxCredentials('pk', 'user+plus@example.com', fn)
-    expect(calls[0].url).toContain('user%2Bplus%40example.com')
+    await checkPauboxCredentials('pk', fn)
+    expect(calls[0].url).toBe(
+      'https://api.paubox.com/v1/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000'
+    )
   })
 
   it('sends Token-scheme Authorization header', async () => {
     const { fn, calls } = fakeGet(async () => ({ status: 200 }))
-    await checkPauboxCredentials('pk_secret', 'u@example.com', fn)
+    await checkPauboxCredentials('pk_secret', fn)
     const headers = calls[0].config.headers as Record<string, string>
     expect(headers.Authorization).toBe('Token token=pk_secret')
   })
 
   it('PAUBOX_BYPASS_CRED_VALIDATION is inert when NODE_ENV is production', async () => {
-    const prevBypass = process.env.PAUBOX_BYPASS_CRED_VALIDATION
-    const prevNodeEnv = process.env.NODE_ENV
-    process.env.PAUBOX_BYPASS_CRED_VALIDATION = 'true'
-    process.env.NODE_ENV = 'production'
+    // @types/node marks NODE_ENV readonly; tests legitimately need to mutate it.
+    const env = process.env as { NODE_ENV?: string; PAUBOX_BYPASS_CRED_VALIDATION?: string }
+    const prevBypass = env.PAUBOX_BYPASS_CRED_VALIDATION
+    const prevNodeEnv = env.NODE_ENV
+    env.PAUBOX_BYPASS_CRED_VALIDATION = 'true'
+    env.NODE_ENV = 'production'
     try {
       const { fn, calls } = fakeGet(async () => ({ status: 401 }))
-      const result = await checkPauboxCredentials('pk_bad', 'user@example.com', fn)
+      const result = await checkPauboxCredentials('pk_bad', fn)
       expect(calls).toHaveLength(1)
       expect(result.ok).toBe(false)
     } finally {
-      if (prevBypass === undefined) delete process.env.PAUBOX_BYPASS_CRED_VALIDATION
-      else process.env.PAUBOX_BYPASS_CRED_VALIDATION = prevBypass
-      if (prevNodeEnv === undefined) delete process.env.NODE_ENV
-      else process.env.NODE_ENV = prevNodeEnv
+      if (prevBypass === undefined) delete env.PAUBOX_BYPASS_CRED_VALIDATION
+      else env.PAUBOX_BYPASS_CRED_VALIDATION = prevBypass
+      if (prevNodeEnv === undefined) delete env.NODE_ENV
+      else env.NODE_ENV = prevNodeEnv
     }
   })
 })

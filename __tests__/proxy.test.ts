@@ -18,7 +18,7 @@ describe('Paubox Proxy Configuration', () => {
     test('should have default configuration when environment variables are not set', () => {
       expect(PAUBOX_PROXY_CONFIG.enabled).toBe(false)
       expect(PAUBOX_PROXY_CONFIG.customBaseURL).toBe('https://app.staging.paubox.net')
-      expect(PAUBOX_PROXY_CONFIG.originalAPIDomain).toBe('https://api.paubox.net')
+      expect(PAUBOX_PROXY_CONFIG.originalAPIDomain).toBe('https://api.paubox.com')
     })
 
     test('should have correct configuration structure', () => {
@@ -36,72 +36,74 @@ describe('Paubox Proxy Configuration', () => {
     })
   })
 
+  // The email API no longer embeds the API username in the path — endpoints
+  // live directly under /v1 (e.g. /v1/messages, /v1/message_receipt).
   describe('URL Replacement Logic', () => {
     test('should replace original base URL with custom base URL', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'https://my-custom-api.com'
-      
-      const originalURL = 'https://api.paubox.net/v1/user@example.com/messages'
-      const expectedURL = 'https://my-custom-api.com/v1/user@example.com/messages'
-      
+
+      const originalURL = 'https://api.paubox.com/v1/messages'
+      const expectedURL = 'https://my-custom-api.com/v1/messages'
+
       const replacedURL = originalURL.replace(originalAPIDomain, customBaseURL)
       expect(replacedURL).toBe(expectedURL)
     })
 
     test('should handle different custom base URLs', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'http://localhost:8080'
-      
-      const originalURL = 'https://api.paubox.net/v1/user@example.com/messages'
-      const expectedURL = 'http://localhost:8080/v1/user@example.com/messages'
-      
+
+      const originalURL = 'https://api.paubox.com/v1/messages'
+      const expectedURL = 'http://localhost:8080/v1/messages'
+
       const replacedURL = originalURL.replace(originalAPIDomain, customBaseURL)
       expect(replacedURL).toBe(expectedURL)
     })
 
     test('should preserve path and query parameters', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'https://staging-api.paubox.com'
-      
-      const originalURL = 'https://api.paubox.net/v1/user@example.com/messages?sourceTrackingId=123'
-      const expectedURL = 'https://staging-api.paubox.com/v1/user@example.com/messages?sourceTrackingId=123'
-      
+
+      const originalURL = 'https://api.paubox.com/v1/message_receipt?sourceTrackingId=123'
+      const expectedURL = 'https://staging-api.paubox.com/v1/message_receipt?sourceTrackingId=123'
+
       const replacedURL = originalURL.replace(originalAPIDomain, customBaseURL)
       expect(replacedURL).toBe(expectedURL)
     })
 
     test('should handle complex API paths', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'https://test-api.company.com'
-      
-      const originalURL = 'https://api.paubox.net/v1/user@example.com/dynamic_templates/123'
-      const expectedURL = 'https://test-api.company.com/v1/user@example.com/dynamic_templates/123'
-      
+
+      const originalURL = 'https://api.paubox.com/v1/dynamic_templates/123'
+      const expectedURL = 'https://test-api.company.com/v1/dynamic_templates/123'
+
       const replacedURL = originalURL.replace(originalAPIDomain, customBaseURL)
       expect(replacedURL).toBe(expectedURL)
     })
 
     test('should not replace URLs that do not contain the original domain', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'https://my-custom-api.com'
-      
-      const otherURL = 'https://other-api.com/v1/user@example.com/messages'
+
+      const otherURL = 'https://other-api.com/v1/messages'
       const replacedURL = otherURL.replace(originalAPIDomain, customBaseURL)
-      
+
       expect(replacedURL).toBe(otherURL) // Should remain unchanged
     })
 
     test('should handle multiple replacements correctly', () => {
-      const originalAPIDomain = 'https://api.paubox.net'
+      const originalAPIDomain = 'https://api.paubox.com'
       const customBaseURL = 'https://my-custom-api.com'
-      
-      const originalURL = 'https://api.paubox.net/v1/user@example.com/messages'
-      const expectedURL = 'https://my-custom-api.com/v1/user@example.com/messages'
-      
+
+      const originalURL = 'https://api.paubox.com/v1/messages'
+      const expectedURL = 'https://my-custom-api.com/v1/messages'
+
       // Test that the replacement works consistently
       const replacedURL1 = originalURL.replace(originalAPIDomain, customBaseURL)
       const replacedURL2 = originalURL.replace(originalAPIDomain, customBaseURL)
-      
+
       expect(replacedURL1).toBe(expectedURL)
       expect(replacedURL2).toBe(expectedURL)
       expect(replacedURL1).toBe(replacedURL2)
@@ -135,27 +137,27 @@ describe('Paubox Proxy Configuration', () => {
 
   describe('Integration Tests', () => {
     test('should use configuration values in URL replacement', () => {
-      const originalURL = `https://api.paubox.net/v1/user@example.com/messages`
-      const expectedURL = `https://app.staging.paubox.net/v1/user@example.com/messages`
-      
+      const originalURL = `https://api.paubox.com/v1/messages`
+      const expectedURL = `https://app.staging.paubox.net/v1/messages`
+
       const replacedURL = originalURL.replace(
-        PAUBOX_PROXY_CONFIG.originalAPIDomain, 
+        PAUBOX_PROXY_CONFIG.originalAPIDomain,
         PAUBOX_PROXY_CONFIG.customBaseURL
       )
-      
+
       expect(replacedURL).toBe(expectedURL)
     })
 
     test('should handle URL with query parameters', () => {
-      const originalURL = `https://api.paubox.net/v1/user@example.com/messages?sourceTrackingId=123&status=delivered`
-      const expectedURL = `https://app.staging.paubox.net/v1/user@example.com/messages?sourceTrackingId=123&status=delivered`
-      
+      const originalURL = `https://api.paubox.com/v1/message_receipt?sourceTrackingId=123&status=delivered`
+      const expectedURL = `https://app.staging.paubox.net/v1/message_receipt?sourceTrackingId=123&status=delivered`
+
       const replacedURL = originalURL.replace(
-        PAUBOX_PROXY_CONFIG.originalAPIDomain, 
+        PAUBOX_PROXY_CONFIG.originalAPIDomain,
         PAUBOX_PROXY_CONFIG.customBaseURL
       )
-      
+
       expect(replacedURL).toBe(expectedURL)
     })
   })
-}) 
+})

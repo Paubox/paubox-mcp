@@ -12,22 +12,21 @@ export type HttpGet = (
   config: AxiosRequestConfig,
 ) => Promise<{ status: number }>
 
-// Hits a cheap, auth-gated Paubox endpoint to confirm the (apiKey, apiUser)
-// pair is accepted before the server hands out an OAuth token or reports
+// Hits a cheap, auth-gated Paubox endpoint to confirm the apiKey is
+// accepted before the server hands out an OAuth token or reports
 // success from the validate_credentials tool. The endpoint mirrors
-// `getEmailDisposition` in paubox-node so the auth model is identical to
-// what send_secure_email / check_email_status use at runtime.
+// `getEmailDisposition` in lib/paubox-email.ts so the auth model is
+// identical to what send_secure_email / check_email_status use at runtime.
 //
 // 401/403           → { ok: false }   credentials rejected by Paubox
 // any other outcome → { ok: true }    soft-pass; a Paubox outage must not
 //                                      block all new connector adds
 export async function checkPauboxCredentials(
   apiKey: string,
-  apiUser: string,
   httpGet: HttpGet = axios.get,
 ): Promise<CredentialCheckResult> {
-  if (!apiKey || !apiUser) {
-    return { ok: false, reason: 'API username and API key are required.' }
+  if (!apiKey) {
+    return { ok: false, reason: 'API key is required.' }
   }
 
   // Integration test escape hatch. The unit tests inject `httpGet` directly,
@@ -45,8 +44,8 @@ export async function checkPauboxCredentials(
   }
 
   const url =
-    `https://api.paubox.net/v1/${encodeURIComponent(apiUser)}` +
-    `/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000`
+    'https://api.paubox.com/v1' +
+    '/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000'
 
   try {
     const res = await httpGet(url, {
@@ -60,7 +59,7 @@ export async function checkPauboxCredentials(
       validateStatus: () => true,
     })
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, reason: 'Invalid API username or API key.' }
+      return { ok: false, reason: 'Invalid API key.' }
     }
     return { ok: true }
   } catch {
