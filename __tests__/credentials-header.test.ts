@@ -1,9 +1,9 @@
 // Tests for Claude Connectors header-based credential support.
-// Credentials can be passed via x-paubox-api-key / x-paubox-api-user headers
-// instead of (or in addition to) tool parameters.
+// The apiKey can be passed via the x-paubox-api-key header instead of
+// (or in addition to) tool parameters. Only the apiKey authenticates —
+// legacy x-paubox-api-user headers are tolerated and ignored.
 
 process.env.PAUBOX_API_KEY = 'test-key';
-process.env.PAUBOX_API_USER = 'test-user';
 
 import request from 'supertest';
 import { createTestServer, closeTestServer, TestServer } from './test-helpers';
@@ -20,7 +20,9 @@ afterAll(async () => {
 });
 
 const VALID_API_KEY = 'pk_test_valid_api_key_1234567890';
-const VALID_API_USER = 'connector-user@example.com';
+
+// validate_credentials masks the key as first-4-chars + asterisks.
+const masked = (key: string) => key.slice(0, 4) + '*'.repeat(Math.max(0, key.length - 4));
 
 function mcpCall(id: number, toolName: string, args: Record<string, unknown>) {
   return {
@@ -31,16 +33,28 @@ function mcpCall(id: number, toolName: string, args: Record<string, unknown>) {
   };
 }
 
+// Requests with no headers/params must hit the unauthenticated 401 path —
+// temporarily clear the local-dev env fallback so it can't satisfy them.
+async function withoutEnvKey<T>(fn: () => Promise<T>): Promise<T> {
+  const saved = process.env.PAUBOX_API_KEY;
+  delete process.env.PAUBOX_API_KEY;
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.PAUBOX_API_KEY;
+    else process.env.PAUBOX_API_KEY = saved;
+  }
+}
+
 describe('Claude Connectors — header-based credentials', () => {
 
   describe('validate_credentials', () => {
-    it('succeeds with credentials provided only via headers', async () => {
+    it('succeeds with only the x-paubox-api-key header (no x-paubox-api-user needed)', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
-        .set('x-paubox-api-user', VALID_API_USER)
         .send(mcpCall(1, 'validate_credentials', {}));
 
       expect(res.status).toBe(200);
@@ -53,32 +67,56 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         expect(data.result.content[0].text).toContain('✅ Credentials validated successfully');
-        expect(data.result.content[0].text).toContain(VALID_API_USER);
+        expect(data.result.content[0].text).toContain(masked(VALID_API_KEY));
+      }
+    });
+
+    it('tolerates and ignores a legacy x-paubox-api-user header', async () => {
+      const res = await request(testServer.baseUrl)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('x-paubox-api-key', VALID_API_KEY)
+        .set('x-paubox-api-user', 'legacy-user@example.com')
+        .send(mcpCall(9, 'validate_credentials', {}));
+
+      expect(res.status).toBe(200);
+
+      const match = res.text.match(/data: (.+)/);
+      expect(match).toBeTruthy();
+
+      if (match) {
+        const data = JSON.parse(match[1]);
+        expect(data.result.content[0].text).toContain('✅ Credentials validated successfully');
+        // The legacy header must not be required, cause an error, or leak
+        // into the response.
+        expect(data.result.content[0].text).not.toContain('legacy-user@example.com');
       }
     });
 
     it('returns 401 with WWW-Authenticate when no headers and no params (transport-level auth required)', async () => {
-      const res = await request(testServer.baseUrl)
-        .post('/mcp')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send(mcpCall(2, 'validate_credentials', {}));
+      await withoutEnvKey(async () => {
+        const res = await request(testServer.baseUrl)
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .send(mcpCall(2, 'validate_credentials', {}));
 
-      expect(res.status).toBe(401);
-      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
-      expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/);
+        expect(res.status).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+        expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/);
+      });
     });
 
     it('tool params take precedence over headers', async () => {
+      const headerKey = 'hdr_test_header_key_0987654321';
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
-        .set('x-paubox-api-key', 'header-key-should-be-ignored')
-        .set('x-paubox-api-user', 'header-user@example.com')
+        .set('x-paubox-api-key', headerKey)
         .send(mcpCall(3, 'validate_credentials', {
           apiKey: VALID_API_KEY,
-          apiUser: 'param-user@example.com',
         }));
 
       expect(res.status).toBe(200);
@@ -91,20 +129,19 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         // The tool should use the param value, not the header value
-        expect(data.result.content[0].text).toContain('param-user@example.com');
-        expect(data.result.content[0].text).not.toContain('header-user@example.com');
+        expect(data.result.content[0].text).toContain(masked(VALID_API_KEY));
+        expect(data.result.content[0].text).not.toContain(masked(headerKey));
       }
     });
   });
 
   describe('send_secure_email', () => {
-    it('accepts credentials only via headers', async () => {
+    it('accepts the apiKey only via the header', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
-        .set('x-paubox-api-user', VALID_API_USER)
         .send(mcpCall(4, 'send_secure_email', {
           from: 'sender@example.com',
           to: ['recipient@example.com'],
@@ -122,42 +159,42 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         // Should attempt the API call (succeed or fail with API error), not a credentials error
-        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).not.toContain('❌ API key required');
         expect(data.result.content[0].text).toMatch(/✅ Email sent successfully|❌ Failed to send email/);
       }
     });
 
     it('returns 401 when no headers and no params (transport-level auth required)', async () => {
-      const res = await request(testServer.baseUrl)
-        .post('/mcp')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send(mcpCall(5, 'send_secure_email', {
-          from: 'sender@example.com',
-          to: ['recipient@example.com'],
-          subject: 'No Creds Test',
-          message: 'This should fail with credentials error',
-        }));
+      await withoutEnvKey(async () => {
+        const res = await request(testServer.baseUrl)
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .send(mcpCall(5, 'send_secure_email', {
+            from: 'sender@example.com',
+            to: ['recipient@example.com'],
+            subject: 'No Creds Test',
+            message: 'This should fail with credentials error',
+          }));
 
-      expect(res.status).toBe(401);
-      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+        expect(res.status).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+      });
     });
   });
 
   describe('send_secure_email — param precedence over headers', () => {
-    it('uses param apiUser over header apiUser when both are provided', async () => {
-      // Headers carry a short key that would fail if used; params carry a valid key.
-      // If params win, the tool proceeds past credential resolution to an API error.
-      // If headers win, the tool returns a missing-credentials error.
+    it('uses the param apiKey over the header apiKey when both are provided', async () => {
+      // Headers carry a key that would be ignored; params carry a valid key.
+      // If params win, the tool proceeds past credential resolution to the
+      // API call. If resolution broke, the tool would return a missing-key error.
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', 'ignored-header-key')
-        .set('x-paubox-api-user', 'ignored-header-user@example.com')
         .send(mcpCall(20, 'send_secure_email', {
           apiKey: VALID_API_KEY,
-          apiUser: VALID_API_USER,
           from: 'sender@example.com',
           to: ['recipient@example.com'],
           subject: 'Precedence Test',
@@ -174,20 +211,19 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         // Credentials were resolved → tool attempted the API call, not a credentials error
-        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).not.toContain('❌ API key required');
         expect(data.result.content[0].text).toMatch(/✅ Email sent successfully|❌ Failed to send email/);
       }
     });
   });
 
   describe('check_email_status', () => {
-    it('accepts credentials only via headers', async () => {
+    it('accepts the apiKey only via the header', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
-        .set('x-paubox-api-user', VALID_API_USER)
         .send(mcpCall(6, 'check_email_status', {
           sourceTrackingId: 'test-tracking-id-123',
         }));
@@ -202,36 +238,36 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         // Should attempt the API call, not return credentials error
-        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).not.toContain('❌ API key required');
         expect(data.result.content[0].text).toMatch(/📊 Email Status Report|❌ Failed to check email status/);
       }
     });
 
     it('returns 401 when no headers and no params (transport-level auth required)', async () => {
-      const res = await request(testServer.baseUrl)
-        .post('/mcp')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send(mcpCall(7, 'check_email_status', {
-          sourceTrackingId: 'test-tracking-id-123',
-        }));
+      await withoutEnvKey(async () => {
+        const res = await request(testServer.baseUrl)
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .send(mcpCall(7, 'check_email_status', {
+            sourceTrackingId: 'test-tracking-id-123',
+          }));
 
-      expect(res.status).toBe(401);
-      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+        expect(res.status).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/);
+      });
     });
   });
 
   describe('check_email_status — param precedence over headers', () => {
-    it('uses param credentials over header credentials when both are provided', async () => {
+    it('uses the param apiKey over the header apiKey when both are provided', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', 'ignored-header-key')
-        .set('x-paubox-api-user', 'ignored-header-user@example.com')
         .send(mcpCall(21, 'check_email_status', {
           apiKey: VALID_API_KEY,
-          apiUser: VALID_API_USER,
           sourceTrackingId: 'test-tracking-id-for-precedence',
         }));
 
@@ -245,20 +281,19 @@ describe('Claude Connectors — header-based credentials', () => {
         const data = JSON.parse(match[1]);
         expect(data.result).toBeDefined();
         // Credentials were resolved → tool attempted the API call, not a credentials error
-        expect(data.result.content[0].text).not.toContain('❌ API credentials required');
+        expect(data.result.content[0].text).not.toContain('❌ API key required');
         expect(data.result.content[0].text).toMatch(/📊 Email Status Report|❌ Failed to check email status/);
       }
     });
   });
 
   describe('tools/list schema', () => {
-    it('shows apiKey and apiUser as optional (not required) in all tools', async () => {
+    it('shows apiKey as optional and has no apiUser parameter in any tool', async () => {
       const res = await request(testServer.baseUrl)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .set('Accept', 'application/json, text/event-stream')
         .set('x-paubox-api-key', VALID_API_KEY)
-        .set('x-paubox-api-user', VALID_API_USER)
         .send({ jsonrpc: '2.0', id: 8, method: 'tools/list' });
 
       expect(res.status).toBe(200);
@@ -272,10 +307,13 @@ describe('Claude Connectors — header-based credentials', () => {
         if (data.result?.tools) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tools: any[] = data.result.tools;
+          expect(tools.length).toBeGreaterThan(0);
           for (const tool of tools) {
             const required: string[] = tool.inputSchema?.required ?? [];
             expect(required).not.toContain('apiKey');
-            expect(required).not.toContain('apiUser');
+            // apiUser has been removed from every tool schema entirely
+            const properties = Object.keys(tool.inputSchema?.properties ?? {});
+            expect(properties).not.toContain('apiUser');
           }
         }
       }

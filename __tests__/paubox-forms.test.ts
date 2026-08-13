@@ -37,6 +37,12 @@ async function captureError(promise: Promise<unknown>): Promise<PauboxFormsError
   return error as PauboxFormsError
 }
 
+describe('FORMS_BASE_URL', () => {
+  it('targets the consolidated api.paubox.com host', () => {
+    expect(FORMS_BASE_URL).toBe('https://api.paubox.com/forms')
+  })
+})
+
 describe('createFormsClient error mapping', () => {
   it('maps 401 to an invalid-key / missing "forms" scope message', async () => {
     const { fn } = fakeHttp(async () => ({ status: 401, data: {} }))

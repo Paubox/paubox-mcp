@@ -4,7 +4,7 @@ This is the official Model Context Protocol (MCP) server for Paubox Email API, d
 
 ## Overview
 
-This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API and to retrieve and submit Paubox Forms. Users provide their API credentials per session, ensuring security and multi-tenant support.
+This MCP server enables AI assistants to send secure, HIPAA-compliant emails through the Paubox Email API and to retrieve and submit Paubox Forms. Users provide their own API key per session, ensuring security and multi-tenant support.
 
 ## Features
 
@@ -20,7 +20,7 @@ This MCP server enables AI assistants to send secure, HIPAA-compliant emails thr
 
 ## For Paubox Customers
 
-You don't host or clone anything to use Paubox MCP — Paubox runs the server at `https://mcp.paubox.com/mcp`. Add it as a connector in your AI client and enter your Paubox API credentials in the connector configuration form when prompted. See [Connecting to AI Assistants](#connecting-to-ai-assistants) below for client-specific setup.
+You don't host or clone anything to use Paubox MCP — Paubox runs the server at `https://mcp.paubox.com/mcp`. Add it as a connector in your AI client and enter your Paubox API key in the connector configuration form when prompted. See [Connecting to AI Assistants](#connecting-to-ai-assistants) below for client-specific setup.
 
 The rest of this README covers self-hosting and local development.
 
@@ -52,12 +52,12 @@ PAUBOX_CUSTOM_BASE_URL=https://your-custom-endpoint.com
 ### How It Works
 
 The proxy system uses axios interceptors to automatically redirect all Paubox API requests from:
-- `https://api.paubox.net/v1/{apiUser}/`
+- `https://api.paubox.com/v1/`
 
 To your custom endpoint:
-- `https://your-custom-endpoint.com/v1/{apiUser}/`
+- `https://your-custom-endpoint.com/v1/`
 
-The proxy replaces the original API domain (`https://api.paubox.net`) with your custom base URL while preserving the API path structure.
+The proxy replaces the original API domain (`https://api.paubox.com`) with your custom base URL while preserving the API path structure.
 
 ### Use Cases
 
@@ -80,7 +80,7 @@ PAUBOX_CUSTOM_BASE_URL=https://staging-api.paubox.com
 
 ### Implementation Details
 
-The proxy is implemented in `lib/paubox-proxy.ts` and only initializes when the `PAUBOX_PROXY_ENABLED` environment variable is set to `true`. It intercepts all HTTP requests made by the paubox-node package and modifies the base URL accordingly.
+The proxy is implemented in `lib/paubox-proxy.ts` and only initializes when the `PAUBOX_PROXY_ENABLED` environment variable is set to `true`. It intercepts all HTTP requests made by the email API client (`lib/paubox-email.ts`) and modifies the base URL accordingly.
 
 **Note**: The proxy is not automatically loaded by the MCP server to avoid test interference. You must manually import it if you want to use proxy functionality.
 
@@ -112,33 +112,32 @@ Available Paubox components include:
 
 ### Connecting to AI Assistants
 
-There are three ways to provide your Paubox API credentials, in resolution priority order:
+There are three ways to provide your Paubox API key, in resolution priority order:
 
-- **Per-call tool parameters** (highest priority): Pass `apiKey` and `apiUser` directly in each tool call. Useful for one-off use or scripted clients.
-- **Custom connector headers**: Set `x-paubox-api-key` and `x-paubox-api-user` as custom request headers on the connector. Some MCP clients expose this in Advanced Settings when adding a custom connector.
-- **OAuth (recommended for Claude.ai and Claude Desktop)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your credentials once — the client stores a short-lived encrypted Bearer token and sends it on every future request. Credentials are validated against the Paubox API at the moment you submit the form, so typos or expired keys are caught immediately.
+- **Per-call tool parameters** (highest priority): Pass `apiKey` directly in each tool call. Useful for one-off use or scripted clients.
+- **Custom connector headers**: Set `x-paubox-api-key` as a custom request header on the connector. Some MCP clients expose this in Advanced Settings when adding a custom connector.
+- **OAuth (recommended for Claude.ai and Claude Desktop)**: Add the connector URL and a "Configure Paubox" form appears automatically. Enter your API key once — the client stores a short-lived encrypted Bearer token and sends it on every future request. The key is validated against the Paubox API at the moment you submit the form, so typos or expired keys are caught immediately.
 
 #### Claude.ai — Claude Connectors (recommended)
 
 1. Go to [claude.ai](https://claude.ai) and open **Settings → Integrations**
 2. Click **Add connector** and enter URL `https://mcp.paubox.com/mcp`
-3. A "Configure Paubox" form opens — enter your API username and API key
+3. A "Configure Paubox" form opens — enter your API key
 4. Click **Save**
 
-Claude stores your credentials as a secure token in the system keychain and sends it automatically on every request. You never need to include credentials in your prompts.
+Claude stores your API key as a secure token in the system keychain and sends it automatically on every request. You never need to include credentials in your prompts.
 
 #### Claude Code
 
-Install once with your API credentials — no credential prompts afterward:
+Install once with your API key — no credential prompts afterward:
 
 ```bash
 claude mcp add paubox \
   -e PAUBOX_API_KEY=your_api_key \
-  -e PAUBOX_API_USER=your_api_user \
   -- npx @paubox/mcp@latest
 ```
 
-Claude Code spawns the package locally and injects the credentials as environment variables. All tools — email, forms, and forms management — work without passing credentials in each call.
+Claude Code spawns the package locally and injects the API key as an environment variable. All tools — email, forms, and forms management — work without passing credentials in each call.
 
 #### Claude Desktop
 
@@ -156,7 +155,7 @@ Claude Code spawns the package locally and injects the credentials as environmen
 }
 ```
 
-4. Save the file — Claude Desktop will open a browser window to the "Configure Paubox" form to collect your credentials.
+4. Save the file — Claude Desktop will open a browser window to the "Configure Paubox" form to collect your API key.
 
 #### Cursor (for local testing)
 
@@ -173,28 +172,26 @@ Add to `.cursor/mcp.json`:
 
 ## Available Tools
 
-> **Note:** When connecting via the `@paubox/mcp` npm package (Claude Code / stdio), credentials come from environment variables set at install time — `apiKey` and `apiUser` are not required in any tool call. When connecting via the hosted HTTP server (`https://mcp.paubox.com/mcp`), credentials are resolved from OAuth token, `x-paubox-*` headers, or tool parameters.
+> **Note:** When connecting via the `@paubox/mcp` npm package (Claude Code / stdio), the API key comes from the `PAUBOX_API_KEY` environment variable set at install time — `apiKey` is not required in any tool call. When connecting via the hosted HTTP server (`https://mcp.paubox.com/mcp`), the API key is resolved from the OAuth token, the `x-paubox-api-key` header, or tool parameters.
 
 ### validate_credentials
 
-Confirms that Paubox API credentials are present and correctly formatted.
+Confirms that a Paubox API key is present and correctly formatted.
 
 **Parameters (HTTP / hosted server only):**
 - `apiKey`: Your Paubox API key (string, optional if provided via connector headers or OAuth)
-- `apiUser`: Your Paubox API user (string, optional if provided via connector headers or OAuth)
 
 **Example Usage:**
 \`\`\`
-Validate my Paubox credentials with API key "pk_live_..." and API user "user@company.com"
+Validate my Paubox credentials with API key "pk_live_..."
 \`\`\`
 
 ### send_secure_email
 
-Sends a secure email using your Paubox credentials.
+Sends a secure email using your Paubox API key.
 
 **Parameters:**
 - `apiKey`: Your Paubox API key (string, optional — HTTP/hosted server only)
-- `apiUser`: Your Paubox API user (string, optional — HTTP/hosted server only)
 - `from`: Sender email address (string, required)
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
@@ -210,7 +207,7 @@ Send a secure email from "doctor@clinic.com" to "patient@example.com" with subje
 
 **Example Usage (credentials as parameters):**
 \`\`\`
-Send a secure email using my API key "pk_live_..." and API user "user@company.com" from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
+Send a secure email using my API key "pk_live_..." from "doctor@clinic.com" to "patient@example.com" with subject "Test Results" and message "Your results are ready."
 \`\`\`
 
 ### check_email_status
@@ -219,7 +216,6 @@ Checks the delivery status of a sent email.
 
 **Parameters:**
 - `apiKey`: Your Paubox API key (string, optional — HTTP/hosted server only)
-- `apiUser`: Your Paubox API user (string, optional — HTTP/hosted server only)
 - `sourceTrackingId`: Tracking ID from sent email (string, required)
 
 **Example Usage:**
@@ -257,7 +253,7 @@ Submit form "550e8400-e29b-41d4-a716-446655440000" with first_name "Jane", last_
 
 ### Paubox Forms management
 
-The following tools manage forms and their submissions. Unlike `get_form` and `submit_form` (which remain credential-free), they require a **scoped Paubox API key** carrying the `forms` scope, sent as a Bearer token. This reuses the existing `apiKey` credential — via OAuth, `x-paubox-api-key` header, tool parameter, or the `PAUBOX_API_KEY` env var on stdio — and `apiUser` is not required. Scoped API keys are managed in the Paubox admin dashboard.
+The following tools manage forms and their submissions. Unlike `get_form` and `submit_form` (which remain credential-free), they require a **scoped Paubox API key** carrying the `forms` scope, sent as a Bearer token. This reuses the existing `apiKey` credential — via OAuth, `x-paubox-api-key` header, tool parameter, or the `PAUBOX_API_KEY` env var on stdio. Scoped API keys are managed in the Paubox admin dashboard.
 
 - `list_forms`: List a customer's forms with search, sorting, archived/active filters, and pagination (`customerId` required)
 - `create_form`: Create a new form from a title, field schema (`formJson`), and `customerId`, with optional description, HTML/CSS, notification recipients, and signable settings
@@ -301,7 +297,6 @@ cp .env.example .env.local
 |----------|----------|-------------|
 | `JWT_SECRET` | Yes | Signing secret for OAuth tokens. Generate with: `openssl rand -base64 32` |
 | `PAUBOX_API_KEY` | No | Local-dev fallback. Honored only when `NODE_ENV !== 'production'` and no OAuth token / `x-paubox-*` headers / tool parameters are present. Deliberately ignored in production to prevent cross-user credential bleed. |
-| `PAUBOX_API_USER` | No | Local-dev fallback (same semantics as `PAUBOX_API_KEY`). |
 
 ### Testing
 

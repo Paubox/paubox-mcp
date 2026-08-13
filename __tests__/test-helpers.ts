@@ -3,10 +3,11 @@ import http from 'http';
 import '../lib/paubox-proxy';
 
 // Standard auth headers for tests that need transport-level auth but aren't
-// testing credential resolution specifically.
+// testing credential resolution specifically. The API key alone
+// authenticates — no x-paubox-api-user header is needed anymore, and
+// sending only the key exercises exactly that.
 export const TEST_AUTH_HEADERS = {
   'x-paubox-api-key': 'pk_test_valid_api_key_1234567890',
-  'x-paubox-api-user': 'test-user@example.com',
 } as const;
 
 export interface TestServer {

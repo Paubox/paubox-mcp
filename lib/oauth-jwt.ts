@@ -5,7 +5,6 @@ export interface AuthCodePayload {
   type: 'auth_code'
   jti: string
   apiKey: string
-  apiUser: string
   codeChallenge: string
   redirectUri: string
 }
@@ -13,7 +12,6 @@ export interface AuthCodePayload {
 export interface AccessTokenPayload {
   type: 'access_token'
   apiKey: string
-  apiUser: string
 }
 
 export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 // 1 hour
@@ -43,7 +41,7 @@ function getEncryptionKey(): Uint8Array {
 
 // Auth codes ride in the redirect URL (browser history, proxy logs).
 // Encrypt the payload (JWE) instead of just signing it (JWS) so the
-// apiKey/apiUser are not base64-decodable from a leaked URL.
+// apiKey is not base64-decodable from a leaked URL.
 export async function signAuthCode(
   payload: Omit<AuthCodePayload, 'type' | 'jti'>
 ): Promise<string> {
@@ -68,7 +66,7 @@ export async function verifyAuthCode(token: string): Promise<AuthCodePayload> {
 }
 
 // Access tokens are encrypted (JWE) rather than signed (JWS) so the
-// apiKey/apiUser are not base64-decodable from a leaked Bearer header
+// apiKey is not base64-decodable from a leaked Bearer header
 // (Sentry capture, HAR exports, MCP client debug logs, etc.). The 1h
 // `exp` bounds the JWT itself; encryption bounds the embedded credential.
 export async function signAccessToken(
@@ -120,8 +118,8 @@ export function markAuthCodeConsumed(jti: string, ttlSeconds = CONSUMED_CODE_TTL
 // ECS tasks. The trade-off vs opaque tokens is that individual refresh tokens
 // cannot be revoked before expiry; users can revoke access by rotating their
 // Paubox API key.
-export async function issueRefreshToken(apiKey: string, apiUser: string): Promise<string> {
-  return new EncryptJWT({ apiKey, apiUser, type: 'refresh_token' } as Record<string, unknown>)
+export async function issueRefreshToken(apiKey: string): Promise<string> {
+  return new EncryptJWT({ apiKey, type: 'refresh_token' } as Record<string, unknown>)
     .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
     .setJti(randomUUID())
     .setIssuedAt()
@@ -129,15 +127,17 @@ export async function issueRefreshToken(apiKey: string, apiUser: string): Promis
     .encrypt(getEncryptionKey())
 }
 
-export async function consumeRefreshToken(token: string): Promise<{ apiKey: string; apiUser: string } | null> {
+export async function consumeRefreshToken(token: string): Promise<{ apiKey: string } | null> {
   try {
     const { payload } = await jwtDecrypt(token, getEncryptionKey(), {
       keyManagementAlgorithms: ['dir'],
       contentEncryptionAlgorithms: ['A256GCM'],
     })
     if (payload.type !== 'refresh_token') return null
-    if (typeof payload.apiKey !== 'string' || typeof payload.apiUser !== 'string') return null
-    return { apiKey: payload.apiKey, apiUser: payload.apiUser }
+    // Older tokens may still carry an apiUser claim; only apiKey is
+    // validated and read so they keep working.
+    if (typeof payload.apiKey !== 'string') return null
+    return { apiKey: payload.apiKey }
   } catch {
     return null
   }

@@ -1,6 +1,5 @@
 // Mock environment variables for all tests
 process.env.PAUBOX_API_KEY = 'test-key';
-process.env.PAUBOX_API_USER = 'test-user';
 
 import request from 'supertest';
 import { createTestServer, closeTestServer, TestServer } from './test-helpers';
@@ -26,7 +25,6 @@ describe('MCP Route Tests', () => {
         name: "send_secure_email",
         arguments: {
           apiKey: "test-api-key-1234567890",
-          apiUser: "test-user@example.com",
           from: "test@example.com",
           to: ["recipient@example.com"],
           subject: "test subject",
@@ -39,9 +37,7 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
-      .set('x-paubox-api-key', 'test-api-key-1234567890')
-      .set('x-paubox-api-user', 'test-user@example.com')
-      .send(payload)
+      .set('x-paubox-api-key', 'test-api-key-1234567890')      .send(payload)
 
     // Check that the response is successful
     expect(response.status).toBe(200)
@@ -73,7 +69,6 @@ describe('MCP Route Tests', () => {
         name: "send_secure_email",
         arguments: {
           apiKey: "test-api-key-1234567890",
-          apiUser: "test-user@example.com",
           from: "test@example.com",
           to: ["recipient@example.com"],
           subject: "test subject",
@@ -89,9 +84,7 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
-      .set('x-paubox-api-key', 'test-api-key-1234567890')
-      .set('x-paubox-api-user', 'test-user@example.com')
-      .send(payload)
+      .set('x-paubox-api-key', 'test-api-key-1234567890')      .send(payload)
 
     // Check that the response is successful
     expect(response.status).toBe(200)
@@ -123,7 +116,6 @@ describe('MCP Route Tests', () => {
         name: "send_secure_email",
         arguments: {
           apiKey: "test-api-key-1234567890",
-          apiUser: "test-user@example.com",
           // Missing required fields: from, to, subject, message
         }
       }
@@ -133,9 +125,7 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
-      .set('x-paubox-api-key', 'test-api-key-1234567890')
-      .set('x-paubox-api-user', 'test-user@example.com')
-      .send(payload)
+      .set('x-paubox-api-key', 'test-api-key-1234567890')      .send(payload)
       .timeout(5000)
 
     // Should still return 200 but with error in result
@@ -184,9 +174,7 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
-      .set('x-paubox-api-key', 'test-api-key-1234567890')
-      .set('x-paubox-api-user', 'test-user@example.com')
-      .send(payload)
+      .set('x-paubox-api-key', 'test-api-key-1234567890')      .send(payload)
       .timeout(5000)
   }
 
@@ -204,9 +192,7 @@ describe('MCP Route Tests', () => {
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('Accept', 'application/json, text/event-stream')
-      .set('x-paubox-api-key', 'test-api-key-1234567890')
-      .set('x-paubox-api-user', 'test-user@example.com')
-      .send(payload)
+      .set('x-paubox-api-key', 'test-api-key-1234567890')      .send(payload)
       .timeout(5000)
   }
 
