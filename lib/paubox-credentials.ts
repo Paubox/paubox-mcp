@@ -10,7 +10,19 @@ export type CredentialCheckResult =
 export type HttpGet = (
   url: string,
   config: AxiosRequestConfig,
-) => Promise<{ status: number }>
+) => Promise<{ status: number; data?: unknown; headers?: unknown }>
+
+// True when a response body is an HTML document rather than an API payload.
+// The Paubox gateway serves an HTML error page for paths it cannot route, so
+// an HTML body means the request never reached the Email API at all.
+function looksLikeHtml(res: { data?: unknown; headers?: unknown }): boolean {
+  const headers = res.headers as Record<string, unknown> | undefined
+  const contentType = headers?.['content-type'] ?? headers?.['Content-Type']
+  if (typeof contentType === 'string' && contentType.toLowerCase().includes('text/html')) {
+    return true
+  }
+  return typeof res.data === 'string' && /^\s*<(!doctype|html)/i.test(res.data)
+}
 
 // Hits a cheap, auth-gated Paubox endpoint to confirm the apiKey is
 // accepted before the server hands out an OAuth token or reports
@@ -19,6 +31,10 @@ export type HttpGet = (
 // identical to what send_secure_email / check_email_status use at runtime.
 //
 // 401/403           → { ok: false }   credentials rejected by Paubox
+// 404 + HTML body   → { ok: false }   request never reached the Email API
+//                                      (gateway could not route the path);
+//                                      that is our bug, not an outage, and
+//                                      must not be reported as "validated"
 // any other outcome → { ok: true }    soft-pass; a Paubox outage must not
 //                                      block all new connector adds
 export async function checkPauboxCredentials(
@@ -44,13 +60,13 @@ export async function checkPauboxCredentials(
   }
 
   const url =
-    'https://api.paubox.com/v1' +
+    'https://api.paubox.com/v1/email' +
     '/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000'
 
   try {
     const res = await httpGet(url, {
       headers: {
-        Authorization: `Token token=${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       timeout: 8000,
@@ -60,6 +76,18 @@ export async function checkPauboxCredentials(
     })
     if (res.status === 401 || res.status === 403) {
       return { ok: false, reason: 'Invalid API key.' }
+    }
+    // A 404 from the Email API itself is the expected "valid credentials, no
+    // such message" answer for the placeholder tracking ID above, so it stays
+    // a pass. A 404 carrying an HTML body is the gateway's not-found page:
+    // the base URL is wrong and nothing was actually validated.
+    if (res.status === 404 && looksLikeHtml(res)) {
+      return {
+        ok: false,
+        reason:
+          'Could not reach the Paubox Email API — the request was not routed ' +
+          'to it. This is a server configuration problem, not a bad API key.',
+      }
     }
     return { ok: true }
   } catch {

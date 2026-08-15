@@ -1,6 +1,8 @@
 import axios, { AxiosRequestConfig } from 'axios'
 
-export const EMAIL_API_BASE_URL = 'https://api.paubox.com/v1'
+// All Email API requests are served under /v1/email; the bare /v1 prefix is
+// not routed and dies at the gateway with an HTML 404.
+export const EMAIL_API_BASE_URL = 'https://api.paubox.com/v1/email'
 
 // Minimal shape we need from the HTTP client — `axios.request` satisfies it.
 // Exposed so unit tests can inject a fake without depending on jest's
@@ -77,7 +79,7 @@ async function request(
     // lib/paubox-proxy.ts (which rewrite config.baseURL) still apply.
     baseURL: EMAIL_API_BASE_URL,
     headers: {
-      Authorization: `Token token=${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       ...(config.headers ?? {}),
     },

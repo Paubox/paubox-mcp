@@ -19,7 +19,9 @@ const FETCH_TIMEOUT_MS = 15000
 // Paubox Email API client (inlined; the stdio build cannot import from lib/)
 // ---------------------------------------------------------------------------
 
-const EMAIL_API_BASE_URL = "https://api.paubox.com/v1"
+// All Email API requests are served under /v1/email; the bare /v1 prefix is
+// not routed and dies at the gateway with an HTML 404.
+const EMAIL_API_BASE_URL = "https://api.paubox.com/v1/email"
 
 interface SendMessageOptions {
   from: string
@@ -45,7 +47,7 @@ async function emailRequest(
   const response = await fetch(`${EMAIL_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Token token=${apiKey!.trim()}`,
+      Authorization: `Bearer ${apiKey!.trim()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -257,7 +259,9 @@ server.tool(
 // Paubox Forms tools
 // ---------------------------------------------------------------------------
 
-const FORMS_BASE_URL = "https://api.paubox.com/forms"
+// All Forms API requests are served under /v1/forms; the bare /forms prefix
+// is not routed and dies at the gateway with an HTML 404.
+const FORMS_BASE_URL = "https://api.paubox.com/v1/forms"
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"

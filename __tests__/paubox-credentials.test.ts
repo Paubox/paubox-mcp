@@ -62,19 +62,42 @@ describe('checkPauboxCredentials', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('hits api.paubox.com with no username path segment', async () => {
+  it('hits the /v1/email base path with no username path segment', async () => {
     const { fn, calls } = fakeGet(async () => ({ status: 200 }))
     await checkPauboxCredentials('pk', fn)
     expect(calls[0].url).toBe(
-      'https://api.paubox.com/v1/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000'
+      'https://api.paubox.com/v1/email/message_receipt?sourceTrackingId=00000000-0000-0000-0000-000000000000'
     )
   })
 
-  it('sends Token-scheme Authorization header', async () => {
+  it('sends Bearer-scheme Authorization header', async () => {
     const { fn, calls } = fakeGet(async () => ({ status: 200 }))
     await checkPauboxCredentials('pk_secret', fn)
     const headers = calls[0].config.headers as Record<string, string>
-    expect(headers.Authorization).toBe('Token token=pk_secret')
+    expect(headers.Authorization).toBe('Bearer pk_secret')
+  })
+
+  it('returns ok:false when a 404 carries an HTML gateway page', async () => {
+    // The gateway serves HTML for paths it cannot route. Soft-passing that
+    // reports "credentials validated" for a base URL that reaches nothing.
+    const { fn } = fakeGet(async () => ({
+      status: 404,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+      data: '<!DOCTYPE html><html><body>404 Not Found</body></html>',
+    }))
+    const result = await checkPauboxCredentials('pk_good', fn)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toMatch(/not routed|configuration/i)
+  })
+
+  it('still returns ok:true for a JSON 404 from the Email API itself', async () => {
+    const { fn } = fakeGet(async () => ({
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+      data: { errors: [{ title: 'Message not found' }] },
+    }))
+    const result = await checkPauboxCredentials('pk_good', fn)
+    expect(result.ok).toBe(true)
   })
 
   it('PAUBOX_BYPASS_CRED_VALIDATION is inert when NODE_ENV is production', async () => {

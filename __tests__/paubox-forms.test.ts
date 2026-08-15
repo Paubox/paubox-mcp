@@ -38,8 +38,8 @@ async function captureError(promise: Promise<unknown>): Promise<PauboxFormsError
 }
 
 describe('FORMS_BASE_URL', () => {
-  it('targets the consolidated api.paubox.com host', () => {
-    expect(FORMS_BASE_URL).toBe('https://api.paubox.com/forms')
+  it('targets the standardized /v1/forms base path', () => {
+    expect(FORMS_BASE_URL).toBe('https://api.paubox.com/v1/forms')
   })
 })
 
