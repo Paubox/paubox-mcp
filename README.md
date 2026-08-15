@@ -52,10 +52,10 @@ PAUBOX_CUSTOM_BASE_URL=https://your-custom-endpoint.com
 ### How It Works
 
 The proxy system uses axios interceptors to automatically redirect all Paubox API requests from:
-- `https://api.paubox.com/v1/`
+- `https://api.paubox.com/v1/email/`
 
 To your custom endpoint:
-- `https://your-custom-endpoint.com/v1/`
+- `https://your-custom-endpoint.com/v1/email/`
 
 The proxy replaces the original API domain (`https://api.paubox.com`) with your custom base URL while preserving the API path structure.
 

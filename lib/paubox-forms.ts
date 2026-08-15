@@ -1,6 +1,8 @@
 import axios, { AxiosRequestConfig } from 'axios'
 
-export const FORMS_BASE_URL = 'https://api.paubox.com/forms'
+// All Forms API requests are served under /v1/forms; the bare /forms prefix
+// is not routed and dies at the gateway with an HTML 404.
+export const FORMS_BASE_URL = 'https://api.paubox.com/v1/forms'
 
 // Minimal shape we need from the HTTP client — `axios.request` satisfies it.
 // Exposed so unit tests can inject a fake without depending on jest's
