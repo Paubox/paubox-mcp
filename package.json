@@ -6,7 +6,7 @@
     "paubox-mcp": "dist/stdio.js"
   },
   "files": [
-    "dist/stdio.js"
+    "dist"
   ],
   "scripts": {
     "build": "next build",
