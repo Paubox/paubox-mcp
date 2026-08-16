@@ -13,6 +13,11 @@ import {
   FormSubmission,
   validateFormId,
 } from '../../lib/paubox-forms'
+import {
+  ANALYTICS_REPORTS,
+  AnalyticsReport,
+  createMarketingClient,
+} from '../../lib/paubox-marketing'
 
 type RequestCredentials = {
   apiKey?: string
@@ -72,6 +77,15 @@ const trimSubmission = (submission: FormSubmission) => {
 
 const formsFailureText = (action: string, error: unknown) =>
   `❌ Failed to ${action}: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+
+const MISSING_MARKETING_API_KEY_ERROR = "❌ API key required. Marketing tools use the same Paubox API key as the email tools. Reconnect the Paubox connector in your client (Claude → Settings → Integrations → Paubox), or pass apiKey as a tool parameter, or set the x-paubox-api-key header."
+
+const marketingFailureText = (action: string, error: unknown) =>
+  `❌ Failed to ${action}: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+
+const jsonText = (payload: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+})
 
 const mcpHandler = createMcpHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -744,6 +758,492 @@ const mcpHandler = createMcpHandler(
           }
         } catch (error) {
           return { content: [{ type: "text", text: formsFailureText("export submission PDF", error) }] }
+        }
+      }
+    )
+
+    // -----------------------------------------------------------------------
+    // Paubox Email Marketing tools (read-only + safe subscriber/list writes).
+    //
+    // These call the username-less Marketing API gateway at
+    // api.paubox.com/v1/marketing, which resolves the customer from the same
+    // API key the email tools use — no extra credential is needed. Sending and
+    // deleting (campaign sends, scheduling, bulk delete) are deliberately not
+    // exposed here; they mail or destroy whole lists and need a confirmation
+    // model of their own.
+    // -----------------------------------------------------------------------
+
+    server.tool(
+      "validate_marketing_access",
+      "Check whether this Paubox account has Email Marketing provisioned, and return the marketing customer profile (name, from_name, from_email, physical address, global unsubscribe setting). Run this first if other marketing tools report that no marketing customer was found.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+      },
+      async ({ apiKey: paramKey }: { apiKey?: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const customer = await createMarketingClient({ apiKey }).getCurrentCustomer()
+          return {
+            content: [
+              {
+                type: "text",
+                text: `✅ Email Marketing is enabled for this API key.\n\n${JSON.stringify(customer, null, 2)}`,
+              },
+            ],
+          }
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("validate marketing access", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_subscribers",
+      "List Paubox Email Marketing subscribers. Supports full-text search, scoping to a subscription list or dynamic list, ordering, and pagination. Omit subscriptionListId to search the account's default \"All contacts\" list.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        search: z.string().optional().describe("Search text; defaults to all subscribers"),
+        subscriptionListId: z.number().int().positive().optional().describe("Restrict to a subscription list (integer ID from list_subscription_lists)"),
+        dynamicListId: z.string().optional().describe("Restrict to a dynamic list (UUID from list_dynamic_lists)"),
+        orderBy: z.string().optional().describe("Sort field (default created_at)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+        page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page (default 50, capped at 200 here to keep output readable)"),
+        withStats: z.boolean().optional().describe("Include per-subscriber delivery statistics"),
+      },
+      async ({ apiKey: paramKey, search, subscriptionListId, dynamicListId, orderBy, order, page, items, withStats }: {
+        apiKey?: string;
+        search?: string;
+        subscriptionListId?: number;
+        dynamicListId?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+        withStats?: boolean;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listSubscribers({
+            search, subscriptionListId, dynamicListId, orderBy, order, page, items, withStats,
+          }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list subscribers", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_subscriber",
+      "Retrieve one Paubox Email Marketing subscriber by UUID, including custom field values and the subscription lists they belong to.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        subscriberId: z.string().min(1, "Subscriber ID is required").describe("Subscriber UUID"),
+        subscriptionListId: z.number().int().positive().optional().describe("Report subscribed/unsubscribed relative to this subscription list"),
+        dynamicListId: z.string().optional().describe("Report subscribed/unsubscribed relative to this dynamic list (UUID)"),
+        withStats: z.boolean().optional().describe("Include this subscriber's delivery statistics"),
+      },
+      async ({ apiKey: paramKey, subscriberId, subscriptionListId, dynamicListId, withStats }: {
+        apiKey?: string;
+        subscriberId: string;
+        subscriptionListId?: number;
+        dynamicListId?: string;
+        withStats?: boolean;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.getSubscriber(subscriberId, { subscriptionListId, dynamicListId, withStats }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("get subscriber", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "create_subscriber",
+      "Add a subscriber to Paubox Email Marketing. Requires an email or a phone number. The subscriber always joins the default \"All contacts\" list, plus subscriptionListId when given. An existing subscriber with the same email or phone is updated rather than duplicated. Custom field names that do not exist yet are created automatically.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        email: z.string().optional().describe("Subscriber email address"),
+        phoneNumber: z.string().optional().describe("Subscriber phone number (normalized to E.164)"),
+        firstName: z.string().optional().describe("First name"),
+        lastName: z.string().optional().describe("Last name"),
+        customFields: z.array(z.object({
+          name: z.string().describe("Custom field name"),
+          value: z.unknown().describe("Custom field value"),
+        })).optional().describe("Custom field name/value pairs"),
+        subscriptionListId: z.number().int().positive().optional().describe("Additional subscription list to subscribe them to"),
+      },
+      async ({ apiKey: paramKey, email, phoneNumber, firstName, lastName, customFields, subscriptionListId }: {
+        apiKey?: string;
+        email?: string;
+        phoneNumber?: string;
+        firstName?: string;
+        lastName?: string;
+        customFields?: Array<{ name: string; value: unknown }>;
+        subscriptionListId?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.createSubscriber(
+            { email, phoneNumber, firstName, lastName, customFields },
+            subscriptionListId,
+          ))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("create subscriber", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "update_subscriber",
+      "Update an existing Paubox Email Marketing subscriber by UUID. Only the fields you provide are changed; omitted fields stay unchanged.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        subscriberId: z.string().min(1, "Subscriber ID is required").describe("Subscriber UUID"),
+        email: z.string().optional().describe("New email address"),
+        phoneNumber: z.string().optional().describe("New phone number (normalized to E.164)"),
+        firstName: z.string().optional().describe("New first name"),
+        lastName: z.string().optional().describe("New last name"),
+        customFields: z.array(z.object({
+          name: z.string().describe("Custom field name"),
+          value: z.unknown().describe("Custom field value"),
+        })).optional().describe("Custom field name/value pairs to set"),
+        subscriptionListId: z.number().int().positive().optional().describe("Subscription list to also subscribe them to"),
+      },
+      async ({ apiKey: paramKey, subscriberId, email, phoneNumber, firstName, lastName, customFields, subscriptionListId }: {
+        apiKey?: string;
+        subscriberId: string;
+        email?: string;
+        phoneNumber?: string;
+        firstName?: string;
+        lastName?: string;
+        customFields?: Array<{ name: string; value: unknown }>;
+        subscriptionListId?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.updateSubscriber(
+            subscriberId,
+            { email, phoneNumber, firstName, lastName, customFields },
+            subscriptionListId,
+          ))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("update subscriber", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_subscribed_count",
+      "Get the number of currently subscribed (not unsubscribed, not deleted) contacts on a Paubox Email Marketing subscription list. Defaults to the \"All contacts\" list.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        subscriptionListId: z.number().int().positive().optional().describe("Subscription list ID (defaults to the account's default list)"),
+      },
+      async ({ apiKey: paramKey, subscriptionListId }: { apiKey?: string; subscriptionListId?: number }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.getSubscribedCount(subscriptionListId))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("get subscribed count", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_marketing_lists",
+      "List all Paubox Email Marketing audiences — both static subscription lists and filter-based dynamic lists — in one view, with subscriber counts. Use list_subscription_lists or list_dynamic_lists when you need one kind specifically.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        search: z.string().optional().describe("Search text matched against list names"),
+        orderBy: z.string().optional().describe("Sort field: name, created_at, updated_at, or subscriber_count (default name)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+        page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+      },
+      async ({ apiKey: paramKey, search, orderBy, order, page, items }: {
+        apiKey?: string;
+        search?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listLists({ search, orderBy, order, page, items }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list marketing lists", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_subscription_lists",
+      "List Paubox Email Marketing subscription lists (static audiences) with their integer IDs, subscriber counts, and which one is the default \"All contacts\" list. The IDs returned here are what subscriptionListId expects elsewhere.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        orderBy: z.string().optional().describe("Sort field (default name)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+        page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+      },
+      async ({ apiKey: paramKey, orderBy, order, page, items }: {
+        apiKey?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listSubscriptionLists({ orderBy, order, page, items }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list subscription lists", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "create_subscription_list",
+      "Create a new (empty) Paubox Email Marketing subscription list. Returns the list's integer ID for use with create_subscriber and list_subscribers.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        name: z.string().min(1, "Name is required").describe("Name for the new subscription list"),
+      },
+      async ({ apiKey: paramKey, name }: { apiKey?: string; name: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.createSubscriptionList(name))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("create subscription list", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_dynamic_lists",
+      "List Paubox Email Marketing dynamic lists — filter-based segments that recompute their membership — with their UUIDs, filter definitions, and subscriber counts.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        orderBy: z.string().optional().describe("Sort field (default name)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+        page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+      },
+      async ({ apiKey: paramKey, orderBy, order, page, items }: {
+        apiKey?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listDynamicLists({ orderBy, order, page, items }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list dynamic lists", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_subscriber_custom_fields",
+      "List the custom subscriber field types defined for this Paubox Email Marketing account. Use this to discover which custom field names create_subscriber and update_subscriber can set.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+      },
+      async ({ apiKey: paramKey }: { apiKey?: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listCustomFieldTypes())
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list subscriber custom fields", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_campaign_sends",
+      "List Paubox Email Marketing campaign sends (each time a marketing email went out to a list), with per-send counts for delivered, viewed, clicked, bounced, and unsubscribed.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        search: z.string().optional().describe("Search text matched against the send"),
+        orderBy: z.string().optional().describe("Sort field (default created_at)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+        page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page"),
+      },
+      async ({ apiKey: paramKey, search, orderBy, order, page, items }: {
+        apiKey?: string;
+        search?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listCampaignSends({ search, orderBy, order, page, items }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list campaign sends", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_campaign_deliveries",
+      "List individual Paubox Email Marketing deliveries — one row per recipient per campaign — showing what happened to each message. Scope with campaignMailingId or campaignMailingSendId.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        campaignMailingId: z.number().int().positive().optional().describe("Restrict to one campaign mailing (integer ID)"),
+        campaignMailingSendId: z.number().int().positive().optional().describe("Restrict to one send of a campaign mailing (integer ID from list_campaign_sends)"),
+        search: z.string().optional().describe("Search text"),
+        orderBy: z.string().optional().describe("Sort field (default created_at)"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+        page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+        items: z.number().int().min(1).max(200).optional().describe("Items per page"),
+      },
+      async ({ apiKey: paramKey, campaignMailingId, campaignMailingSendId, search, orderBy, order, page, items }: {
+        apiKey?: string;
+        campaignMailingId?: number;
+        campaignMailingSendId?: number;
+        search?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        page?: number;
+        items?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.listCampaignDeliveries({
+            campaignMailingId, campaignMailingSendId, search, orderBy, order, page, items,
+          }))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("list campaign deliveries", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_campaign_analytics",
+      "Run a Paubox Email Marketing analytics report. Reports: campaign_mailing_sends_table (per-send performance rows), campaign_mailing_send_totals (aggregate totals, optionally bucketed by date), campaign_mailing_deliveries_table (per-recipient detail for one campaign or send), subscribers_by_tracking_link (who clicked a link), tracking_links_by_unique_link (click counts per link).",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        report: z.enum(ANALYTICS_REPORTS).describe("Which analytics report to run"),
+        campaignMailingId: z.number().int().positive().optional().describe("Scope to one campaign mailing (integer ID)"),
+        campaignMailingSendId: z.number().int().positive().optional().describe("Scope to one campaign send (integer ID)"),
+        dripCampaignId: z.number().int().positive().optional().describe("Scope to one drip campaign (integer ID)"),
+        trackingLinkId: z.number().int().positive().optional().describe("Scope to one tracking link (integer ID)"),
+        emailType: z.string().optional().describe("Filter by email type"),
+        search: z.string().optional().describe("Search text"),
+        orderBy: z.string().optional().describe("Sort field, e.g. marketing_email_id, sent_at, subscription_list_name"),
+        order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+        byDate: z.boolean().optional().describe("For campaign_mailing_send_totals: bucket by date"),
+        startDate: z.string().optional().describe("Start of the date range (parseable timestamp); pair with endDate"),
+        endDate: z.string().optional().describe("End of the date range (parseable timestamp); pair with startDate"),
+        dateOffset: z.number().int().optional().describe("For campaign_mailing_send_totals with byDate: look back this many days instead of giving startDate/endDate"),
+        withStats: z.boolean().optional().describe("Include summed delivery statistics columns"),
+      },
+      async ({ apiKey: paramKey, report, ...params }: {
+        apiKey?: string;
+        report: AnalyticsReport;
+        campaignMailingId?: number;
+        campaignMailingSendId?: number;
+        dripCampaignId?: number;
+        trackingLinkId?: number;
+        emailType?: string;
+        search?: string;
+        orderBy?: string;
+        order?: "asc" | "desc";
+        byDate?: boolean;
+        startDate?: string;
+        endDate?: string;
+        dateOffset?: number;
+        withStats?: boolean;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.getAnalytics(report, params))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("get campaign analytics", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_marketing_bulk_job",
+      "Check the progress of an asynchronous Paubox Email Marketing bulk job. Bulk subscriber imports and CSV exports return a job ID (jid/bid) instead of a result; pass it here to see total, pending, and failed counts.",
+      {
+        apiKey: z.string().optional().describe("Paubox API key (same key as the email tools)"),
+        bulkJobId: z.string().min(1, "Bulk job ID is required").describe("The bid/jid returned by a bulk operation"),
+      },
+      async ({ apiKey: paramKey, bulkJobId }: { apiKey?: string; bulkJobId: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_MARKETING_API_KEY_ERROR }] }
+          }
+          const client = createMarketingClient({ apiKey })
+          return jsonText(await client.getBulkJob(bulkJobId))
+        } catch (error) {
+          return { content: [{ type: "text", text: marketingFailureText("get marketing bulk job", error) }] }
         }
       }
     )

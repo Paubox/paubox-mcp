@@ -1037,6 +1037,832 @@ server.tool(
   }
 )
 
+// ---------------------------------------------------------------------------
+// Paubox Email Marketing tools (read-only + safe subscriber/list writes)
+//
+// These call the username-less Marketing API gateway, which resolves the
+// customer from the same API key the email tools use — no extra credential is
+// needed. Sending and deleting (campaign sends, scheduling, bulk delete) are
+// deliberately not exposed; they mail or destroy whole lists and need a
+// confirmation model of their own.
+//
+// The client is inlined here for the same reason as the email and forms
+// clients: the stdio build cannot import from lib/.
+// ---------------------------------------------------------------------------
+
+// As with email and forms, the /v1 prefix is required — a bare /marketing
+// base is unrouted and dies at the gateway with an HTML 404.
+const MARKETING_BASE_URL = "https://api.paubox.com/v1/marketing"
+
+const MARKETING_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Keep path separators and query delimiters out of interpolated path segments.
+function validateMarketingUuid(raw: string, field: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) throw new Error(`${field} is required.`)
+  if (!MARKETING_UUID_RE.test(trimmed)) throw new Error(`${field} must be a UUID.`)
+  return trimmed
+}
+
+// Sidekiq batch IDs are URL-safe tokens rather than UUIDs, so they get a
+// charset check instead.
+function validateBulkJobId(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) throw new Error("bulkJobId is required.")
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(trimmed)) {
+    throw new Error("bulkJobId must contain only letters, numbers, hyphens, and underscores.")
+  }
+  return trimmed
+}
+
+// The Rails error envelope is {"errors":[{"message":"404 Customer Not Found"}]};
+// validation failures arrive as {"errors":{"email":["is invalid"]}}.
+function marketingErrorDetail(body: string): string {
+  if (!body) return ""
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body.slice(0, 300)
+  }
+  if (typeof parsed !== "object" || parsed === null) return body.slice(0, 300)
+  const errors = (parsed as Record<string, unknown>).errors
+  if (Array.isArray(errors)) {
+    const parts = errors
+      .map((entry) => {
+        if (typeof entry === "string") return entry
+        if (typeof entry === "object" && entry !== null) {
+          const message = (entry as Record<string, unknown>).message
+          if (typeof message === "string") return message
+        }
+        return ""
+      })
+      .filter((part) => part.length > 0)
+    if (parts.length > 0) return parts.join("; ")
+  } else if (errors && typeof errors === "object") {
+    const parts = Object.entries(errors as Record<string, unknown>).map(
+      ([field, messages]) =>
+        `${field} ${Array.isArray(messages) ? messages.join(", ") : String(messages)}`
+    )
+    if (parts.length > 0) return parts.join("; ")
+  } else if (typeof errors === "string") {
+    return errors
+  }
+  return body.slice(0, 300)
+}
+
+function marketingErrorMessage(status: number, body: string): string {
+  const detail = marketingErrorDetail(body)
+  if (status === 401) {
+    return "Your Paubox API key was rejected by the Marketing API. Marketing tools authenticate with the same API key as the email tools."
+  }
+  if (status === 403) {
+    return "Access denied: your API key's customer cannot access that marketing resource."
+  }
+  if (status === 404) {
+    // A 404 saying "Customer Not Found" means the key authenticated but no
+    // marketing customer is associated with it — a provisioning gap, not a
+    // missing record.
+    if (/customer not found/i.test(detail)) {
+      return "This Paubox account does not have Email Marketing provisioned. The API key is valid, but no marketing customer is associated with it — contact Paubox to enable Marketing for this account."
+    }
+    return "Not found: the requested marketing resource does not exist."
+  }
+  return `Paubox Marketing API error (HTTP ${status})${detail ? `: ${detail}` : ""}`
+}
+
+type MarketingQuery = Record<string, string | number | boolean | undefined>
+
+async function marketingRequest(
+  path: string,
+  options: { method?: string; query?: MarketingQuery; body?: unknown } = {}
+): Promise<unknown> {
+  const url = new URL(`${MARKETING_BASE_URL}${path}`)
+  if (options.query) {
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value !== undefined) url.searchParams.set(key, String(value))
+    }
+  }
+  const response = await fetch(url.toString(), {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey!.trim()}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  let raw = ""
+  try {
+    raw = await response.text()
+  } catch {
+    // ignore unreadable bodies
+  }
+  if (!response.ok) {
+    throw new Error(marketingErrorMessage(response.status, raw))
+  }
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+// Collapse fast_jsonapi resources ({ id, type, attributes }) into flat objects
+// so the model sees `{ id, email, ... }` instead of a nested envelope, keeping
+// the sibling metadata (total_count, page_info) the controllers merge in.
+function flattenMarketingResource(entry: unknown): unknown {
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return entry
+  const record = entry as { id?: unknown; attributes?: unknown }
+  if (typeof record.attributes !== "object" || record.attributes === null) return entry
+  return { id: record.id, ...(record.attributes as Record<string, unknown>) }
+}
+
+function flattenMarketingDocument(payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null) return payload
+  const body = payload as Record<string, unknown>
+  if (!("data" in body)) return payload
+  const data = Array.isArray(body.data)
+    ? body.data.map(flattenMarketingResource)
+    : flattenMarketingResource(body.data)
+  const rest: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(body)) {
+    if (key !== "data" && value !== undefined && value !== null) rest[key] = value
+  }
+  return { data, ...rest }
+}
+
+function marketingJson(payload: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+}
+
+function marketingFailure(action: string, error: unknown) {
+  return { content: [{ type: "text" as const, text: `Failed to ${action}: ${errorText(error)}` }] }
+}
+
+// These endpoints only paginate when use_pagination is set; asking for a page
+// without it silently returns the whole collection.
+function marketingCollectionQuery(params: {
+  search?: string
+  orderBy?: string
+  order?: string
+  page?: number
+  items?: number
+}): MarketingQuery {
+  const query: MarketingQuery = {
+    search: params.search,
+    order_by: params.orderBy,
+    order: params.order,
+  }
+  if (params.page !== undefined) {
+    query.page = params.page
+    query.use_pagination = true
+  }
+  if (params.items !== undefined) {
+    query.items = params.items
+    query.use_pagination = true
+  }
+  return query
+}
+
+// SubscriberCreator reads snake_case keys off subscriber_data. `create`
+// matches an existing record by email or phone and cannot identify a new one
+// without either; `update` assigns each field only when present, so partial
+// updates are valid.
+function marketingSubscriberPayload(
+  fields: {
+    email?: string
+    phoneNumber?: string
+    firstName?: string
+    lastName?: string
+    customFields?: Array<{ name: string; value: unknown }>
+  },
+  requireIdentifier: boolean
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  if (fields.email !== undefined) payload.email = fields.email
+  if (fields.phoneNumber !== undefined) payload.phone_number = fields.phoneNumber
+  if (fields.firstName !== undefined) payload.first_name = fields.firstName
+  if (fields.lastName !== undefined) payload.last_name = fields.lastName
+  if (fields.customFields !== undefined) payload.custom_fields = fields.customFields
+  if (Object.keys(payload).length === 0) {
+    throw new Error(
+      "Provide at least one subscriber field (email, phoneNumber, firstName, lastName, or customFields)."
+    )
+  }
+  if (requireIdentifier && payload.email === undefined && payload.phone_number === undefined) {
+    throw new Error("A new subscriber needs an email or a phoneNumber to be identified.")
+  }
+  return payload
+}
+
+// The five report types registered in
+// Analytics::EmailMarketingAnalyticsService.request_types. The controller
+// derives the report from the last path segment, so anything outside this set
+// raises a KeyError server-side and returns a 500.
+const ANALYTICS_REPORTS = [
+  "campaign_mailing_sends_table",
+  "campaign_mailing_send_totals",
+  "campaign_mailing_deliveries_table",
+  "subscribers_by_tracking_link",
+  "tracking_links_by_unique_link",
+] as const
+
+server.tool(
+  "validate_marketing_access",
+  "Check whether this Paubox account has Email Marketing provisioned, and return the marketing customer profile (name, from_name, from_email, physical address, global unsubscribe setting). Run this first if other marketing tools report that no marketing customer was found.",
+  {},
+  async () => {
+    try {
+      const customer = await marketingRequest("/current_customer")
+      return marketingJson(flattenMarketingDocument(customer))
+    } catch (error) {
+      return marketingFailure("validate marketing access", error)
+    }
+  }
+)
+
+server.tool(
+  "list_subscribers",
+  'List Paubox Email Marketing subscribers. Supports full-text search, scoping to a subscription list or dynamic list, ordering, and pagination. Omit subscriptionListId to search the account\'s default "All contacts" list.',
+  {
+    search: z.string().optional().describe("Search text; defaults to all subscribers"),
+    subscriptionListId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Restrict to a subscription list (integer ID from list_subscription_lists)"),
+    dynamicListId: z
+      .string()
+      .optional()
+      .describe("Restrict to a dynamic list (UUID from list_dynamic_lists)"),
+    orderBy: z.string().optional().describe("Sort field (default created_at)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+    page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page (default 50)"),
+    withStats: z.boolean().optional().describe("Include per-subscriber delivery statistics"),
+  },
+  async ({
+    search,
+    subscriptionListId,
+    dynamicListId,
+    orderBy,
+    order,
+    page,
+    items,
+    withStats,
+  }: {
+    search?: string
+    subscriptionListId?: number
+    dynamicListId?: string
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+    withStats?: boolean
+  }) => {
+    try {
+      const response = await marketingRequest("/subscribers", {
+        query: {
+          search,
+          subscription_list_id: subscriptionListId,
+          dynamic_list_id:
+            dynamicListId === undefined
+              ? undefined
+              : validateMarketingUuid(dynamicListId, "dynamicListId"),
+          order_by: orderBy,
+          order,
+          page,
+          items,
+          with_stats: withStats,
+        },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list subscribers", error)
+    }
+  }
+)
+
+server.tool(
+  "get_subscriber",
+  "Retrieve one Paubox Email Marketing subscriber by UUID, including custom field values and the subscription lists they belong to.",
+  {
+    subscriberId: z.string().min(1, "Subscriber ID is required").describe("Subscriber UUID"),
+    subscriptionListId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Report subscribed/unsubscribed relative to this subscription list"),
+    dynamicListId: z
+      .string()
+      .optional()
+      .describe("Report subscribed/unsubscribed relative to this dynamic list (UUID)"),
+    withStats: z.boolean().optional().describe("Include this subscriber's delivery statistics"),
+  },
+  async ({
+    subscriberId,
+    subscriptionListId,
+    dynamicListId,
+    withStats,
+  }: {
+    subscriberId: string
+    subscriptionListId?: number
+    dynamicListId?: string
+    withStats?: boolean
+  }) => {
+    try {
+      const validated = validateMarketingUuid(subscriberId, "subscriberId")
+      const response = await marketingRequest(`/subscribers/${encodeURIComponent(validated)}`, {
+        query: {
+          subscription_list_id: subscriptionListId,
+          dynamic_list_id:
+            dynamicListId === undefined
+              ? undefined
+              : validateMarketingUuid(dynamicListId, "dynamicListId"),
+          // The serializer gates statistics on the literal string "true".
+          with_stats: withStats ? "true" : undefined,
+        },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("get subscriber", error)
+    }
+  }
+)
+
+server.tool(
+  "create_subscriber",
+  'Add a subscriber to Paubox Email Marketing. Requires an email or a phone number. The subscriber always joins the default "All contacts" list, plus subscriptionListId when given. An existing subscriber with the same email or phone is updated rather than duplicated. Custom field names that do not exist yet are created automatically.',
+  {
+    email: z.string().optional().describe("Subscriber email address"),
+    phoneNumber: z.string().optional().describe("Subscriber phone number (normalized to E.164)"),
+    firstName: z.string().optional().describe("First name"),
+    lastName: z.string().optional().describe("Last name"),
+    customFields: z
+      .array(z.object({ name: z.string(), value: z.unknown() }))
+      .optional()
+      .describe("Custom field name/value pairs"),
+    subscriptionListId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Additional subscription list to subscribe them to"),
+  },
+  async ({
+    email,
+    phoneNumber,
+    firstName,
+    lastName,
+    customFields,
+    subscriptionListId,
+  }: {
+    email?: string
+    phoneNumber?: string
+    firstName?: string
+    lastName?: string
+    customFields?: Array<{ name: string; value: unknown }>
+    subscriptionListId?: number
+  }) => {
+    try {
+      const body: Record<string, unknown> = {
+        subscriber: marketingSubscriberPayload(
+          { email, phoneNumber, firstName, lastName, customFields },
+          true
+        ),
+      }
+      if (subscriptionListId !== undefined) body.subscription_list_id = subscriptionListId
+      const response = await marketingRequest("/subscribers", { method: "POST", body })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("create subscriber", error)
+    }
+  }
+)
+
+server.tool(
+  "update_subscriber",
+  "Update an existing Paubox Email Marketing subscriber by UUID. Only the fields you provide are changed; omitted fields stay unchanged.",
+  {
+    subscriberId: z.string().min(1, "Subscriber ID is required").describe("Subscriber UUID"),
+    email: z.string().optional().describe("New email address"),
+    phoneNumber: z.string().optional().describe("New phone number (normalized to E.164)"),
+    firstName: z.string().optional().describe("New first name"),
+    lastName: z.string().optional().describe("New last name"),
+    customFields: z
+      .array(z.object({ name: z.string(), value: z.unknown() }))
+      .optional()
+      .describe("Custom field name/value pairs to set"),
+    subscriptionListId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Subscription list to also subscribe them to"),
+  },
+  async ({
+    subscriberId,
+    email,
+    phoneNumber,
+    firstName,
+    lastName,
+    customFields,
+    subscriptionListId,
+  }: {
+    subscriberId: string
+    email?: string
+    phoneNumber?: string
+    firstName?: string
+    lastName?: string
+    customFields?: Array<{ name: string; value: unknown }>
+    subscriptionListId?: number
+  }) => {
+    try {
+      const validated = validateMarketingUuid(subscriberId, "subscriberId")
+      const body: Record<string, unknown> = {
+        subscriber: marketingSubscriberPayload(
+          { email, phoneNumber, firstName, lastName, customFields },
+          false
+        ),
+      }
+      if (subscriptionListId !== undefined) body.subscription_list_id = subscriptionListId
+      const response = await marketingRequest(`/subscribers/${encodeURIComponent(validated)}`, {
+        method: "PATCH",
+        body,
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("update subscriber", error)
+    }
+  }
+)
+
+server.tool(
+  "get_subscribed_count",
+  'Get the number of currently subscribed (not unsubscribed, not deleted) contacts on a Paubox Email Marketing subscription list. Defaults to the "All contacts" list.',
+  {
+    subscriptionListId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Subscription list ID (defaults to the account's default list)"),
+  },
+  async ({ subscriptionListId }: { subscriptionListId?: number }) => {
+    try {
+      const response = await marketingRequest("/subscribers/subscribed_count", {
+        query: { subscription_list_id: subscriptionListId },
+      })
+      return marketingJson(response)
+    } catch (error) {
+      return marketingFailure("get subscribed count", error)
+    }
+  }
+)
+
+server.tool(
+  "list_marketing_lists",
+  "List all Paubox Email Marketing audiences — both static subscription lists and filter-based dynamic lists — in one view, with subscriber counts. Use list_subscription_lists or list_dynamic_lists when you need one kind specifically.",
+  {
+    search: z.string().optional().describe("Search text matched against list names"),
+    orderBy: z
+      .string()
+      .optional()
+      .describe("Sort field: name, created_at, updated_at, or subscriber_count (default name)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+    page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+  },
+  async (params: {
+    search?: string
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+  }) => {
+    try {
+      const response = await marketingRequest("/lists", {
+        query: marketingCollectionQuery(params),
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list marketing lists", error)
+    }
+  }
+)
+
+server.tool(
+  "list_subscription_lists",
+  'List Paubox Email Marketing subscription lists (static audiences) with their integer IDs, subscriber counts, and which one is the default "All contacts" list. The IDs returned here are what subscriptionListId expects elsewhere.',
+  {
+    orderBy: z.string().optional().describe("Sort field (default name)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+    page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+  },
+  async (params: {
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+  }) => {
+    try {
+      const response = await marketingRequest("/subscription_lists", {
+        query: marketingCollectionQuery(params),
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list subscription lists", error)
+    }
+  }
+)
+
+server.tool(
+  "create_subscription_list",
+  "Create a new (empty) Paubox Email Marketing subscription list. Returns the list's integer ID for use with create_subscriber and list_subscribers.",
+  {
+    name: z.string().min(1, "Name is required").describe("Name for the new subscription list"),
+  },
+  async ({ name }: { name: string }) => {
+    try {
+      const response = await marketingRequest("/subscription_lists", {
+        method: "POST",
+        body: { name },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("create subscription list", error)
+    }
+  }
+)
+
+server.tool(
+  "list_dynamic_lists",
+  "List Paubox Email Marketing dynamic lists — filter-based segments that recompute their membership — with their UUIDs, filter definitions, and subscriber counts.",
+  {
+    orderBy: z.string().optional().describe("Sort field (default name)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default asc)"),
+    page: z.number().int().min(1).optional().describe("Page number (enables pagination)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page (enables pagination)"),
+  },
+  async (params: {
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+  }) => {
+    try {
+      const response = await marketingRequest("/dynamic_lists", {
+        query: marketingCollectionQuery(params),
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list dynamic lists", error)
+    }
+  }
+)
+
+server.tool(
+  "list_subscriber_custom_fields",
+  "List the custom subscriber field types defined for this Paubox Email Marketing account. Use this to discover which custom field names create_subscriber and update_subscriber can set.",
+  {},
+  async () => {
+    try {
+      const response = await marketingRequest("/subscriber_custom_field_types")
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list subscriber custom fields", error)
+    }
+  }
+)
+
+server.tool(
+  "list_campaign_sends",
+  "List Paubox Email Marketing campaign sends (each time a marketing email went out to a list), with per-send counts for delivered, viewed, clicked, bounced, and unsubscribed.",
+  {
+    search: z.string().optional().describe("Search text matched against the send"),
+    orderBy: z.string().optional().describe("Sort field (default created_at)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+    page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page"),
+  },
+  async ({
+    search,
+    orderBy,
+    order,
+    page,
+    items,
+  }: {
+    search?: string
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+  }) => {
+    try {
+      const response = await marketingRequest("/campaign_mailing_sends", {
+        query: { search, order_by: orderBy, order, page, items },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list campaign sends", error)
+    }
+  }
+)
+
+server.tool(
+  "list_campaign_deliveries",
+  "List individual Paubox Email Marketing deliveries — one row per recipient per campaign — showing what happened to each message. Scope with campaignMailingId or campaignMailingSendId.",
+  {
+    campaignMailingId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Restrict to one campaign mailing (integer ID)"),
+    campaignMailingSendId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Restrict to one send of a campaign mailing (integer ID from list_campaign_sends)"),
+    search: z.string().optional().describe("Search text"),
+    orderBy: z.string().optional().describe("Sort field (default created_at)"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+    page: z.number().int().min(1).optional().describe("Page number (default 1)"),
+    items: z.number().int().min(1).max(200).optional().describe("Items per page"),
+  },
+  async ({
+    campaignMailingId,
+    campaignMailingSendId,
+    search,
+    orderBy,
+    order,
+    page,
+    items,
+  }: {
+    campaignMailingId?: number
+    campaignMailingSendId?: number
+    search?: string
+    orderBy?: string
+    order?: "asc" | "desc"
+    page?: number
+    items?: number
+  }) => {
+    try {
+      const response = await marketingRequest("/campaign_mailing_deliveries", {
+        query: {
+          campaign_mailing_id: campaignMailingId,
+          campaign_mailing_send_id: campaignMailingSendId,
+          search,
+          order_by: orderBy,
+          order,
+          page,
+          items,
+        },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("list campaign deliveries", error)
+    }
+  }
+)
+
+server.tool(
+  "get_campaign_analytics",
+  "Run a Paubox Email Marketing analytics report. Reports: campaign_mailing_sends_table (per-send performance rows), campaign_mailing_send_totals (aggregate totals, optionally bucketed by date), campaign_mailing_deliveries_table (per-recipient detail for one campaign or send), subscribers_by_tracking_link (who clicked a link), tracking_links_by_unique_link (click counts per link).",
+  {
+    report: z.enum(ANALYTICS_REPORTS).describe("Which analytics report to run"),
+    campaignMailingId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Scope to one campaign mailing (integer ID)"),
+    campaignMailingSendId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Scope to one campaign send (integer ID)"),
+    dripCampaignId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Scope to one drip campaign (integer ID)"),
+    trackingLinkId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Scope to one tracking link (integer ID)"),
+    emailType: z.string().optional().describe("Filter by email type"),
+    search: z.string().optional().describe("Search text"),
+    orderBy: z
+      .string()
+      .optional()
+      .describe("Sort field, e.g. marketing_email_id, sent_at, subscription_list_name"),
+    order: z.enum(["asc", "desc"]).optional().describe("Sort direction (default desc)"),
+    byDate: z.boolean().optional().describe("For campaign_mailing_send_totals: bucket by date"),
+    startDate: z
+      .string()
+      .optional()
+      .describe("Start of the date range (parseable timestamp); pair with endDate"),
+    endDate: z
+      .string()
+      .optional()
+      .describe("End of the date range (parseable timestamp); pair with startDate"),
+    dateOffset: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "For campaign_mailing_send_totals with byDate: look back this many days instead of giving startDate/endDate"
+      ),
+    withStats: z.boolean().optional().describe("Include summed delivery statistics columns"),
+  },
+  async ({
+    report,
+    campaignMailingId,
+    campaignMailingSendId,
+    dripCampaignId,
+    trackingLinkId,
+    emailType,
+    search,
+    orderBy,
+    order,
+    byDate,
+    startDate,
+    endDate,
+    dateOffset,
+    withStats,
+  }: {
+    report: (typeof ANALYTICS_REPORTS)[number]
+    campaignMailingId?: number
+    campaignMailingSendId?: number
+    dripCampaignId?: number
+    trackingLinkId?: number
+    emailType?: string
+    search?: string
+    orderBy?: string
+    order?: "asc" | "desc"
+    byDate?: boolean
+    startDate?: string
+    endDate?: string
+    dateOffset?: number
+    withStats?: boolean
+  }) => {
+    try {
+      const response = await marketingRequest(`/analytics/${report}`, {
+        query: {
+          campaign_mailing_id: campaignMailingId,
+          campaign_mailing_send_id: campaignMailingSendId,
+          drip_campaign_id: dripCampaignId,
+          tracking_link_id: trackingLinkId,
+          email_type: emailType,
+          search,
+          order_by: orderBy,
+          order,
+          by_date: byDate,
+          start_date: startDate,
+          end_date: endDate,
+          date_offset: dateOffset,
+          with_stats: withStats,
+        },
+      })
+      return marketingJson(flattenMarketingDocument(response))
+    } catch (error) {
+      return marketingFailure("get campaign analytics", error)
+    }
+  }
+)
+
+server.tool(
+  "get_marketing_bulk_job",
+  "Check the progress of an asynchronous Paubox Email Marketing bulk job. Bulk subscriber imports and CSV exports return a job ID (jid/bid) instead of a result; pass it here to see total, pending, and failed counts.",
+  {
+    bulkJobId: z
+      .string()
+      .min(1, "Bulk job ID is required")
+      .describe("The bid/jid returned by a bulk operation"),
+  },
+  async ({ bulkJobId }: { bulkJobId: string }) => {
+    try {
+      const validated = validateBulkJobId(bulkJobId)
+      const response = await marketingRequest(`/bulk_jobs/${encodeURIComponent(validated)}`)
+      return marketingJson(response)
+    } catch (error) {
+      return marketingFailure("get marketing bulk job", error)
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)

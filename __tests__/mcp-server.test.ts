@@ -92,6 +92,71 @@ describe('Paubox MCP Server', () => {
         }
       });
 
+      it('should register the email marketing tools', async () => {
+        const res = await request('http://localhost:3001')
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 101,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const toolNames = data.result.tools.map((tool: { name: string }) => tool.name);
+        for (const name of [
+          'validate_marketing_access',
+          'list_subscribers',
+          'get_subscriber',
+          'create_subscriber',
+          'update_subscriber',
+          'get_subscribed_count',
+          'list_marketing_lists',
+          'list_subscription_lists',
+          'create_subscription_list',
+          'list_dynamic_lists',
+          'list_subscriber_custom_fields',
+          'list_campaign_sends',
+          'list_campaign_deliveries',
+          'get_campaign_analytics',
+          'get_marketing_bulk_job',
+        ]) {
+          expect(toolNames).toContain(name);
+        }
+      });
+
+      it('should not expose campaign sending or bulk deletion tools', async () => {
+        // This tranche is read-only plus safe subscriber/list writes. Sending
+        // and deleting mail or destroy whole lists and need their own
+        // confirmation model before being exposed.
+        const res = await request('http://localhost:3001')
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 102,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const toolNames: string[] = data.result.tools.map((tool: { name: string }) => tool.name);
+        for (const name of [
+          'send_campaign',
+          'schedule_campaign',
+          'cancel_scheduled_campaign',
+          'bulk_delete_subscribers',
+          'delete_subscription_list',
+        ]) {
+          expect(toolNames).not.toContain(name);
+        }
+      });
+
       it('should not expose an apiUser parameter in any tool schema', async () => {
         const res = await request('http://localhost:3001')
           .post('/mcp')
