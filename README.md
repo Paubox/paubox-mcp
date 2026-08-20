@@ -272,6 +272,58 @@ With an `apiKey` available, `get_form` also uses the authenticated API, so inact
 List the active forms for customer 1234, then show me the submissions for the intake form
 \`\`\`
 
+### Paubox Email Marketing
+
+These tools read and write Paubox Email Marketing data using the same `apiKey`
+credential as the email tools — no extra scope is needed, but the account must
+have Email Marketing provisioned. Run `validate_marketing_access` first if
+another marketing tool reports that no marketing customer was found.
+
+This tranche is read-only plus safe subscriber and list writes. Campaign
+sending and bulk deletion are deliberately not exposed; they need their own
+confirmation model first.
+
+**Access and subscribers**
+
+- `validate_marketing_access`: Confirm Email Marketing is provisioned and return the marketing customer profile (name, from_name, from_email, physical address, global unsubscribe setting)
+- `list_subscribers`: List subscribers with full-text search, scoping to a subscription or dynamic list, ordering, and pagination; omit `subscriptionListId` to search the default "All contacts" list
+- `get_subscriber`: Retrieve one subscriber by UUID, with custom field values and list memberships
+- `create_subscriber`: Add a subscriber (email or phone required); always joins "All contacts", updates rather than duplicates an existing match, and auto-creates unknown custom field names
+- `update_subscriber`: Partially update a subscriber by UUID; omitted fields stay unchanged
+- `get_subscribed_count`: Count currently subscribed (not unsubscribed, not deleted) contacts on a list
+- `list_subscriber_custom_fields`: Discover which custom field names `create_subscriber` and `update_subscriber` can set
+
+**Audiences**
+
+- `list_marketing_lists`: All audiences — static subscription lists and filter-based dynamic lists — in one view with subscriber counts
+- `list_subscription_lists`: Static lists with their integer IDs, subscriber counts, and which is the default "All contacts" list. These IDs are what `subscriptionListId` expects elsewhere
+- `create_subscription_list`: Create a new empty subscription list and return its integer ID
+- `list_dynamic_lists`: Filter-based segments with their UUIDs, filter definitions, and subscriber counts
+
+**Campaigns and reporting**
+
+- `list_campaign_sends`: Each time a marketing email went out to a list, with per-send delivered / viewed / clicked / bounced / unsubscribed counts
+- `list_campaign_deliveries`: One row per recipient per campaign; scope with `campaignMailingId` or `campaignMailingSendId`
+- `get_campaign_analytics`: Run one of five reports — `campaign_mailing_sends_table`, `campaign_mailing_send_totals`, `campaign_mailing_deliveries_table`, `subscribers_by_tracking_link`, `tracking_links_by_unique_link`
+- `get_marketing_bulk_job`: Check progress of an async bulk job; bulk imports and CSV exports return a job ID (`jid`/`bid`) instead of a result
+
+**Example Usage:**
+\`\`\`
+Which campaign send last month had the worst click rate, and who clicked the pricing link?
+\`\`\`
+
+## Keeping the tool list honest
+
+`tools.json` is the manifest of every tool this server exposes. A test in
+`__tests__/mcp-server.test.ts` calls `tools/list` and asserts the live set
+matches it exactly, so adding or removing a tool fails CI until the manifest is
+updated in the same change.
+
+When you update `tools.json`, update these too:
+
+- `README.md` — the Available Tools section above
+- `mcp-server/tools.mdx` in [`Paubox/pb_mintlify`](https://github.com/Paubox/pb_mintlify), which publishes to [docs.paubox.com/mcp-server/tools](https://docs.paubox.com/mcp-server/tools)
+
 ## Security & Compliance
 
 - **HIPAA Compliant**: All emails are sent through Paubox's HIPAA-compliant infrastructure

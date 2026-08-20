@@ -2,18 +2,14 @@
 process.env.PAUBOX_API_KEY = 'test-key';
 
 import request from 'supertest';
-import next from 'next';
-import http from 'http';
+import { createTestServer, closeTestServer, TestServer } from './test-helpers';
+import expectedTools from '../tools.json';
 
-let server: http.Server;
-let app: ReturnType<typeof next>;
+let testServer: TestServer;
 
 beforeAll(async () => {
-  app = next({ dev: false, dir: process.cwd() });
-  await app.prepare();
-  server = http.createServer((req, res) => app.getRequestHandler()(req, res));
-  await new Promise<void>((resolve) => server.listen(3001, () => resolve()));
-}, 5000);
+  testServer = await createTestServer();
+}, 30000);
 
 // The API key alone authenticates — no x-paubox-api-user header is sent, so
 // every test here also proves key-only transport auth works.
@@ -29,11 +25,7 @@ function parseSse(text: string) {
 }
 
 afterAll(async () => {
-  server.closeAllConnections?.()
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  if (app && typeof app.close === 'function') {
-    await app.close();
-  }
+  await closeTestServer(testServer);
 });
 
 describe('Paubox MCP Server', () => {
@@ -52,7 +44,7 @@ describe('Paubox MCP Server', () => {
   describe('MCP API Endpoints', () => {
     describe('GET /mcp', () => {
       it('should return 405 Method Not Allowed for authenticated GET requests', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .get('/mcp')
           .set(TEST_AUTH_HEADERS);
         expect(res.statusCode).toBe(405);
@@ -61,7 +53,7 @@ describe('Paubox MCP Server', () => {
 
     describe('POST /mcp', () => {
       it('should list available tools', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
@@ -92,8 +84,33 @@ describe('Paubox MCP Server', () => {
         }
       });
 
+      // Exact-set guard. Every other tools/list assertion here uses toContain,
+      // so adding a tool has never failed a build — which is how the published
+      // docs drifted to 5 of 30 tools (PPD-9020). Changing the tool set must
+      // now be a deliberate edit to tools.json, and that edit is the reminder
+      // to update README.md and pb_mintlify's mcp-server/tools.mdx.
+      it('should expose exactly the tools listed in tools.json', async () => {
+        const res = await request(testServer.baseUrl)
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 100,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const actual: string[] = data.result.tools.map((tool: { name: string }) => tool.name);
+
+        // Sorted set comparison so the diff names the drifting tools.
+        expect([...new Set(actual)].sort()).toEqual([...new Set(expectedTools)].sort());
+      });
+
       it('should register the email marketing tools', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
@@ -132,7 +149,7 @@ describe('Paubox MCP Server', () => {
         // This tranche is read-only plus safe subscriber/list writes. Sending
         // and deleting mail or destroy whole lists and need their own
         // confirmation model before being exposed.
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
@@ -158,7 +175,7 @@ describe('Paubox MCP Server', () => {
       });
 
       it('should not expose an apiUser parameter in any tool schema', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
@@ -182,7 +199,7 @@ describe('Paubox MCP Server', () => {
 
       describe('validate_credentials tool', () => {
         it('should validate credentials successfully with valid input', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -217,7 +234,7 @@ describe('Paubox MCP Server', () => {
         });
 
         it('should reject invalid API key format', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -253,7 +270,7 @@ describe('Paubox MCP Server', () => {
         // alone authenticates. A legacy client that still sends apiUser
         // must be tolerated — the argument is ignored, never an error.
         it('should validate successfully without apiUser, ignoring a legacy apiUser argument', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -294,7 +311,7 @@ describe('Paubox MCP Server', () => {
 
       describe('send_secure_email tool', () => {
         it('should validate send_secure_email parameters', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -325,7 +342,7 @@ describe('Paubox MCP Server', () => {
         });
 
         it('should reject invalid email format in send_secure_email', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -355,7 +372,7 @@ describe('Paubox MCP Server', () => {
         });
 
         it('should handle optional parameters correctly', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -391,7 +408,7 @@ describe('Paubox MCP Server', () => {
 
       describe('check_email_status tool', () => {
         it('should validate check_email_status parameters', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -419,7 +436,7 @@ describe('Paubox MCP Server', () => {
         });
 
         it('should reject missing sourceTrackingId in check_email_status', async () => {
-          const res = await request('http://localhost:3001')
+          const res = await request(testServer.baseUrl)
             .post('/mcp')
             .set('Content-Type', 'application/json')
             .set('Accept', 'application/json, text/event-stream')
@@ -451,7 +468,7 @@ describe('Paubox MCP Server', () => {
 
     describe('Error handling', () => {
       it('should handle missing Accept header', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set(TEST_AUTH_HEADERS)
@@ -466,7 +483,7 @@ describe('Paubox MCP Server', () => {
       });
 
       it('should handle invalid tool names', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
@@ -492,7 +509,7 @@ describe('Paubox MCP Server', () => {
       // apiKey is the only credential — a call carrying nothing but the
       // apiKey must succeed, not error with a missing-parameter complaint.
       it('should treat apiKey as the only required credential', async () => {
-        const res = await request('http://localhost:3001')
+        const res = await request(testServer.baseUrl)
           .post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')

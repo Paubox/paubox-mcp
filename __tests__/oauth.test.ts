@@ -27,7 +27,7 @@ import { createTestServer, closeTestServer, TestServer } from './test-helpers'
 let testServer: TestServer
 
 beforeAll(async () => {
-  testServer = await createTestServer(3006)
+  testServer = await createTestServer()
 }, 15000)
 
 afterAll(async () => {
@@ -149,7 +149,7 @@ describe('GET /.well-known/oauth-protected-resource', () => {
 
     expect(res.status).toBe(200)
     const body = JSON.parse(res.text)
-    expect(body.resource).toMatch(/^http:\/\/localhost:3006/)
+    expect(body.resource).toMatch(new RegExp(`^${testServer.baseUrl}`))
     expect(body.authorization_servers).toContain(body.resource)
   })
 })
@@ -161,7 +161,7 @@ describe('GET /.well-known/oauth-authorization-server', () => {
 
     expect(res.status).toBe(200)
     const body = JSON.parse(res.text)
-    expect(body.issuer).toMatch(/^http:\/\/localhost:3006/)
+    expect(body.issuer).toMatch(new RegExp(`^${testServer.baseUrl}`))
     expect(body.authorization_endpoint).toContain('/oauth/authorize')
     expect(body.token_endpoint).toContain('/oauth/token')
     expect(body.response_types_supported).toContain('code')
