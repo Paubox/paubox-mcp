@@ -14,7 +14,7 @@ import { createTestServer, closeTestServer, TestServer } from './test-helpers';
 let testServer: TestServer;
 
 beforeAll(async () => {
-  testServer = await createTestServer(3004);
+  testServer = await createTestServer();
 }, 15000);
 
 afterAll(async () => {

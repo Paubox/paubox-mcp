@@ -4,7 +4,7 @@ import { createTestServer, closeTestServer, TestServer, TEST_AUTH_HEADERS } from
 let testServer: TestServer;
 
 beforeAll(async () => {
-  testServer = await createTestServer(3007);
+  testServer = await createTestServer();
 }, 15000);
 
 afterAll(async () => {
