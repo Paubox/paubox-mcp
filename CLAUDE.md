@@ -10,6 +10,17 @@ pnpm lint
 
 Fix any errors before considering the task complete.
 
+If you added, removed, or renamed a tool, update `tools.json` in the same
+change — `__tests__/mcp-server.test.ts` asserts the live `tools/list` matches it
+exactly and will fail CI otherwise. Then update the tool docs in both places:
+
+- `README.md`, under Available Tools
+- `mcp-server/tools.mdx` in [`Paubox/pb_mintlify`](https://github.com/Paubox/pb_mintlify), which publishes to https://docs.paubox.com/mcp-server/tools
+
+The docs site lives in a different repo, so a tool shipped here is undocumented
+until that second PR lands. Skipping it is how the published page drifted to 5
+of 30 tools (PPD-9020).
+
 ## Local development
 
 Copy `.env.example` to `.env.local` and set `JWT_SECRET` before running the dev server:

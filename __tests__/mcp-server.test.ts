@@ -4,6 +4,7 @@ process.env.PAUBOX_API_KEY = 'test-key';
 import request from 'supertest';
 import next from 'next';
 import http from 'http';
+import expectedTools from '../tools.json';
 
 let server: http.Server;
 let app: ReturnType<typeof next>;
@@ -90,6 +91,31 @@ describe('Paubox MCP Server', () => {
           expect(toolNames).toContain('send_secure_email');
           expect(toolNames).toContain('check_email_status');
         }
+      });
+
+      // Exact-set guard. Every other tools/list assertion here uses toContain,
+      // so adding a tool has never failed a build — which is how the published
+      // docs drifted to 5 of 30 tools (PPD-9020). Changing the tool set must
+      // now be a deliberate edit to tools.json, and that edit is the reminder
+      // to update README.md and pb_mintlify's mcp-server/tools.mdx.
+      it('should expose exactly the tools listed in tools.json', async () => {
+        const res = await request('http://localhost:3001')
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 100,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const actual: string[] = data.result.tools.map((tool: { name: string }) => tool.name);
+
+        // Sorted set comparison so the diff names the drifting tools.
+        expect([...new Set(actual)].sort()).toEqual([...new Set(expectedTools)].sort());
       });
 
       it('should register the email marketing tools', async () => {
