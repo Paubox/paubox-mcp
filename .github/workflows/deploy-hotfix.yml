@@ -13,14 +13,23 @@ on:
         default: false
         type: boolean
 
-# Deploys must not overlap. The stability wait holds this job for ~10min, and the
-# services-stable waiter has no notion of which revision it is waiting for, so a
-# second run can converge the service on its own revision and leave the first
-# reporting success for one that never went live. cancel-in-progress stays false:
-# killing a run mid-wait would abandon a rollout ECS is still performing.
+# Shares deploy-prod's group because both target cluster
+# paubox-mcp-server-production, service webapp-service, and must not race each
+# other's UpdateService call.
+#
+# cancel-in-progress is true here, unlike deploy-prod. cancel-in-progress is a
+# property of the INCOMING run, so this makes a hotfix preempt a routine deploy
+# rather than wait behind it. Queueing would be wrong twice over during an
+# incident: the hotfix would sit through the predecessor's ~10min stability
+# wait, and GitHub cancels and replaces any already-pending run in a group, so
+# a routine merge landing behind a queued hotfix would silently discard it.
+#
+# Cancelling the routine deploy's job does not stop the rollout ECS is already
+# performing; the hotfix's own UpdateService supersedes it, and the final state
+# is the hotfix revision.
 concurrency:
   group: deploy-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   AWS_REGION: us-west-2
