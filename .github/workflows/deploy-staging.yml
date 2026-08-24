@@ -9,6 +9,15 @@ on:
         default: "develop"
         type: string
 
+# Deploys must not overlap. The stability wait holds this job for ~10min, and the
+# services-stable waiter has no notion of which revision it is waiting for, so a
+# second run can converge the service on its own revision and leave the first
+# reporting success for one that never went live. cancel-in-progress stays false:
+# killing a run mid-wait would abandon a rollout ECS is still performing.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: paubox-mcp-server-staging
@@ -86,6 +95,7 @@ jobs:
   deploy-to-ecs:
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     if: github.event_name != 'pull_request'
 
     steps:
@@ -116,6 +126,10 @@ jobs:
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           # Without this the step returns as soon as ECS accepts the update, so
-          # the job goes green while tasks are still starting — and stays green
-          # if they fail their health checks and the deployment rolls back.
+          # the job goes green while tasks are still starting. The circuit
+          # breaker is disabled on this service, so unhealthy tasks are retried
+          # indefinitely rather than rolled back: the deployment simply never
+          # reaches steady state and this wait is what turns that into a
+          # failure. Observed healthy rollout is ~10min; 20 leaves headroom.
           wait-for-service-stability: true
+          wait-for-minutes: 20

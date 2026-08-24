@@ -13,6 +13,24 @@ on:
         default: false
         type: boolean
 
+# Shares deploy-prod's group because both target cluster
+# paubox-mcp-server-production, service webapp-service, and must not race each
+# other's UpdateService call.
+#
+# cancel-in-progress is true here, unlike deploy-prod. cancel-in-progress is a
+# property of the INCOMING run, so this makes a hotfix preempt a routine deploy
+# rather than wait behind it. Queueing would be wrong twice over during an
+# incident: the hotfix would sit through the predecessor's ~10min stability
+# wait, and GitHub cancels and replaces any already-pending run in a group, so
+# a routine merge landing behind a queued hotfix would silently discard it.
+#
+# Cancelling the routine deploy's job does not stop the rollout ECS is already
+# performing; the hotfix's own UpdateService supersedes it, and the final state
+# is the hotfix revision.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: paubox-mcp-server-production
@@ -109,6 +127,7 @@ jobs:
   deploy-to-ecs:
     needs: build-and-deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -134,21 +153,30 @@ jobs:
           image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-deploy.outputs.sha }}
 
       - name: Deploy task definition
+        id: deploy
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           # Without this the step returns as soon as ECS accepts the update, so
-          # the job goes green while tasks are still starting — and stays green
-          # if they fail their health checks and the deployment rolls back.
+          # the job goes green while tasks are still starting. The circuit
+          # breaker is disabled on this service, so unhealthy tasks are retried
+          # indefinitely rather than rolled back: the deployment simply never
+          # reaches steady state and this wait is what turns that into a
+          # failure. Observed healthy rollout is ~10min; 20 leaves headroom.
           wait-for-service-stability: true
+          wait-for-minutes: 20
 
       - name: Output hotfix deployment info
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
-            console.log(`🚨 HOTFIX DEPLOYMENT COMPLETED! 🚨`)
+            const deployed = '${{ steps.deploy.outcome }}' === 'success'
+            console.log(deployed
+              ? `🚨 HOTFIX DEPLOYMENT COMPLETED! 🚨`
+              : `❌ HOTFIX DEPLOYMENT DID NOT COMPLETE — the service never reached steady state. Production is still serving the previous revision.`)
             console.log(`Branch: ${{ inputs.hotfix_branch }}`)
             console.log(`Git SHA: ${{ steps.git-sha.outputs.sha }}`)
             console.log(`Production image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}`)
