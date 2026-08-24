@@ -119,3 +119,7 @@ jobs:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
+          # Without this the step returns as soon as ECS accepts the update, so
+          # the job goes green while tasks are still starting — and stays green
+          # if they fail their health checks and the deployment rolls back.
+          wait-for-service-stability: true
