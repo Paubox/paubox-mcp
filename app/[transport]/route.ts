@@ -4,7 +4,7 @@ import { createMcpHandler } from "mcp-handler"
 import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
 import { checkPauboxCredentials } from '../../lib/paubox-credentials'
-import { sendEmail, getEmailDisposition } from '../../lib/paubox-email'
+import { sendEmail, getEmailDisposition, scheduleEmail, getScheduledEmail, rescheduleEmail, cancelScheduledEmail } from '../../lib/paubox-email'
 import {
   FORMS_BASE_URL,
   createFormsClient,
@@ -242,6 +242,196 @@ const mcpHandler = createMcpHandler(
         }
       }
     )
+    server.tool(
+      "schedule_email",
+      "Schedule a secure, HIPAA-compliant email for future delivery using Paubox",
+      {
+        apiKey: z.string().optional(),
+        from: z.string(),
+        to: z.array(z.string()),
+        subject: z.string(),
+        message: z.string(),
+        scheduledAt: z.string().describe("ISO 8601 datetime for when the email should be sent (e.g. 2025-12-25T15:00:00Z)"),
+        cc: z.array(z.string()).optional(),
+        bcc: z.array(z.string()).optional(),
+        forceSecureNotification: z.boolean().optional(),
+      },
+      async ({ apiKey: paramKey, from, to, subject, message, scheduledAt, cc, bcc, forceSecureNotification }: {
+        apiKey?: string;
+        from: string;
+        to: string[];
+        subject: string;
+        message: string;
+        scheduledAt: string;
+        cc?: string[];
+        bcc?: string[];
+        forceSecureNotification?: boolean;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
+          if (!message || message.trim().length === 0) {
+            throw new Error("Message content is required and cannot be empty")
+          }
+
+          const response = await scheduleEmail(apiKey, {
+            from,
+            to,
+            subject,
+            textContent: message.trim(),
+            htmlContent: `<p>${message.trim()}</p>`,
+            cc,
+            bcc,
+            forceSecureNotification: forceSecureNotification ?? false,
+            scheduledAt,
+          })
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Email scheduled\n\nFrom: ${from}\nTo: ${to.join(", ")}\nSubject: ${subject}\nScheduled at: ${response.scheduledAt}\nSource Tracking ID: ${response.sourceTrackingId}\nState: ${response.state}\n\nSave the Source Tracking ID to check status, reschedule, or cancel.`,
+              },
+            ],
+          }
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to schedule email: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+
+    server.tool(
+      "get_scheduled_email",
+      "Check the status of a scheduled email using its Source Tracking ID",
+      {
+        apiKey: z.string().optional(),
+        sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+      },
+      async ({ apiKey: paramKey, sourceTrackingId }: {
+        apiKey?: string;
+        sourceTrackingId: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
+          const response = await getScheduledEmail(apiKey, sourceTrackingId.trim())
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Scheduled Email Status\n\nSource Tracking ID: ${sourceTrackingId}\nState: ${(response as Record<string, unknown>).state}\nScheduled at: ${(response as Record<string, unknown>).scheduledAt}\n\n${JSON.stringify(response, null, 2)}`,
+              },
+            ],
+          }
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to get scheduled email: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+
+    server.tool(
+      "reschedule_email",
+      "Change the scheduled delivery time of a pending email",
+      {
+        apiKey: z.string().optional(),
+        sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+        scheduledAt: z.string().describe("New ISO 8601 datetime for when the email should be sent"),
+      },
+      async ({ apiKey: paramKey, sourceTrackingId, scheduledAt }: {
+        apiKey?: string;
+        sourceTrackingId: string;
+        scheduledAt: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
+          const response = await rescheduleEmail(apiKey, sourceTrackingId.trim(), scheduledAt)
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}\nState: ${response.state}`,
+              },
+            ],
+          }
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to reschedule email: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+
+    server.tool(
+      "cancel_scheduled_email",
+      "Cancel a scheduled email that has not yet been sent",
+      {
+        apiKey: z.string().optional(),
+        sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+      },
+      async ({ apiKey: paramKey, sourceTrackingId }: {
+        apiKey?: string;
+        sourceTrackingId: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+
+          const response = await cancelScheduledEmail(apiKey, sourceTrackingId.trim())
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Scheduled email cancelled\n\nSource Tracking ID: ${response.sourceTrackingId}\nState: ${response.state}`,
+              },
+            ],
+          }
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to cancel scheduled email: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error occurred'}`,
+              },
+            ],
+          }
+        }
+      }
+    )
+
     server.tool(
       "get_form",
       "Retrieve metadata and field schema for a Paubox Form by its UUID. Returns the form title, description, field definitions (form_json), and status. Works without credentials for active forms; when an API key with the \"forms\" scope is available, inactive and archived forms are retrievable too.",

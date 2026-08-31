@@ -83,7 +83,8 @@ async function emailRequest(
   if (
     record.data === undefined &&
     record.sourceTrackingId === undefined &&
-    record.errors === undefined
+    record.errors === undefined &&
+    record.state === undefined
   ) {
     throw new Error("Unexpected response from the Paubox Email API")
   }
@@ -141,6 +142,57 @@ async function getEmailDisposition(sourceTrackingId: string): Promise<EmailApiRe
   return emailRequest(
     `/message_receipt?sourceTrackingId=${encodeURIComponent(sourceTrackingId)}`
   )
+}
+
+async function scheduleMessage(
+  options: SendMessageOptions & { scheduledAt: string }
+): Promise<EmailApiResponse> {
+  return emailRequest("/schedule", {
+    method: "POST",
+    body: {
+      data: {
+        message: {
+          recipients: options.to,
+          cc: options.cc ?? null,
+          bcc: options.bcc ?? null,
+          headers: {
+            subject: options.subject,
+            from: options.from,
+            "reply-to": null,
+          },
+          content: {
+            "text/plain": options.textContent,
+            "text/html": Buffer.from(options.htmlContent, "utf-8").toString("base64"),
+          },
+          attachments: [],
+          allowNonTLS: false,
+          forceSecureNotification: options.forceSecureNotification ?? false,
+        },
+        scheduled_at: options.scheduledAt,
+      },
+    },
+  })
+}
+
+async function getScheduledMessage(sourceTrackingId: string): Promise<unknown> {
+  return emailRequest(`/schedule/${encodeURIComponent(sourceTrackingId)}`)
+}
+
+async function rescheduleMessage(
+  sourceTrackingId: string,
+  scheduledAt: string
+): Promise<unknown> {
+  return emailRequest(`/schedule/${encodeURIComponent(sourceTrackingId)}`, {
+    method: "PATCH",
+    body: { scheduled_at: scheduledAt },
+  })
+}
+
+async function cancelScheduledMessage(sourceTrackingId: string): Promise<unknown> {
+  return emailRequest(`/schedule/${encodeURIComponent(sourceTrackingId)}/cancel`, {
+    method: "POST",
+    body: {},
+  })
 }
 
 const server = new McpServer({ name: "paubox", version: "1.0.0" })
@@ -248,6 +300,166 @@ server.tool(
           {
             type: "text" as const,
             text: `Failed to check email status: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
+          },
+        ],
+      }
+    }
+  }
+)
+
+server.tool(
+  "schedule_email",
+  "Schedule a secure, HIPAA-compliant email for future delivery using Paubox",
+  {
+    from: z.string().email("Must be a valid email address"),
+    to: z.array(z.string().email()).min(1, "At least one recipient is required"),
+    subject: z.string().min(1, "Subject is required"),
+    message: z.string().min(1, "Message content is required"),
+    scheduledAt: z.string().describe("ISO 8601 datetime for when the email should be sent (e.g. 2025-12-25T15:00:00Z)"),
+    cc: z.array(z.string().email()).optional(),
+    bcc: z.array(z.string().email()).optional(),
+    forceSecureNotification: z.boolean().optional(),
+  },
+  async ({
+    from,
+    to,
+    subject,
+    message,
+    scheduledAt,
+    cc,
+    bcc,
+    forceSecureNotification,
+  }: {
+    from: string
+    to: string[]
+    subject: string
+    message: string
+    scheduledAt: string
+    cc?: string[]
+    bcc?: string[]
+    forceSecureNotification?: boolean
+  }) => {
+    try {
+      const response = await scheduleMessage({
+        from,
+        to,
+        cc,
+        bcc,
+        subject,
+        textContent: message.trim(),
+        htmlContent: `<p>${message.trim()}</p>`,
+        forceSecureNotification,
+        scheduledAt,
+      })
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Email scheduled\n\nFrom: ${from}\nTo: ${to.join(", ")}\nSubject: ${subject}\nScheduled at: ${(response as Record<string, unknown>).scheduledAt}\nSource Tracking ID: ${response.sourceTrackingId}\nState: ${(response as Record<string, unknown>).state}\n\nSave the Source Tracking ID to check status, reschedule, or cancel.`,
+          },
+        ],
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Failed to schedule email: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
+          },
+        ],
+      }
+    }
+  }
+)
+
+server.tool(
+  "get_scheduled_email",
+  "Check the status of a scheduled email using its Source Tracking ID",
+  {
+    sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+  },
+  async ({ sourceTrackingId }: { sourceTrackingId: string }) => {
+    try {
+      const response = await getScheduledMessage(sourceTrackingId.trim()) as Record<string, unknown>
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Scheduled Email Status\n\nSource Tracking ID: ${sourceTrackingId}\nState: ${response.state}\nScheduled at: ${response.scheduledAt}\n\n${JSON.stringify(response, null, 2)}`,
+          },
+        ],
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Failed to get scheduled email: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
+          },
+        ],
+      }
+    }
+  }
+)
+
+server.tool(
+  "reschedule_email",
+  "Change the scheduled delivery time of a pending email",
+  {
+    sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+    scheduledAt: z.string().describe("New ISO 8601 datetime for when the email should be sent"),
+  },
+  async ({ sourceTrackingId, scheduledAt }: { sourceTrackingId: string; scheduledAt: string }) => {
+    try {
+      const response = await rescheduleMessage(sourceTrackingId.trim(), scheduledAt) as Record<string, unknown>
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}\nState: ${response.state}`,
+          },
+        ],
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Failed to reschedule email: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
+          },
+        ],
+      }
+    }
+  }
+)
+
+server.tool(
+  "cancel_scheduled_email",
+  "Cancel a scheduled email that has not yet been sent",
+  {
+    sourceTrackingId: z.string().min(1, "Source Tracking ID is required"),
+  },
+  async ({ sourceTrackingId }: { sourceTrackingId: string }) => {
+    try {
+      const response = await cancelScheduledMessage(sourceTrackingId.trim()) as Record<string, unknown>
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Scheduled email cancelled\n\nSource Tracking ID: ${response.sourceTrackingId}\nState: ${response.state}`,
+          },
+        ],
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Failed to cancel scheduled email: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
           },
         ],
       }

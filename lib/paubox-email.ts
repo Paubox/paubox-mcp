@@ -28,6 +28,22 @@ export interface SendEmailResponse {
   errors?: unknown
 }
 
+export interface ScheduleEmailResponse {
+  sourceTrackingId?: string
+  scheduledAt?: string
+  state?: string
+  data?: string
+  errors?: unknown
+}
+
+export interface ScheduledMessageResponse {
+  sourceTrackingId?: string
+  scheduledAt?: string
+  state?: string
+  data?: string
+  errors?: unknown
+}
+
 // Mirrors paubox-node's error semantics: a response body that carries none
 // of data / sourceTrackingId / errors is not a recognizable Paubox API
 // response, so treat it as an error.
@@ -37,7 +53,8 @@ function isRecognizableBody(body: unknown): boolean {
   return (
     record.data !== undefined ||
     record.sourceTrackingId !== undefined ||
-    record.errors !== undefined
+    record.errors !== undefined ||
+    record.state !== undefined
   )
 }
 
@@ -137,8 +154,81 @@ export async function sendEmail(
   return (await request(apiKey, { method: 'post', url: '/messages', data: body }, http)) as SendEmailResponse
 }
 
-// Fetches delivery status via GET /message_receipt. Returns the parsed
-// response body.
+export async function scheduleEmail(
+  apiKey: string,
+  options: SendEmailOptions & { scheduledAt: string },
+  http: HttpRequest = axios.request,
+): Promise<ScheduleEmailResponse> {
+  const body = {
+    data: {
+      message: {
+        recipients: options.to,
+        cc: options.cc ?? null,
+        bcc: options.bcc ?? null,
+        headers: {
+          subject: options.subject,
+          from: options.from,
+          'reply-to': null,
+        },
+        content: {
+          'text/plain': options.textContent,
+          'text/html': Buffer.from(options.htmlContent).toString('base64'),
+        },
+        attachments: [],
+        allowNonTLS: false,
+        forceSecureNotification: options.forceSecureNotification ?? false,
+      },
+      scheduled_at: options.scheduledAt,
+    },
+  }
+  return (await request(apiKey, { method: 'post', url: '/schedule', data: body }, http)) as ScheduleEmailResponse
+}
+
+export async function getScheduledEmail(
+  apiKey: string,
+  sourceTrackingId: string,
+  http: HttpRequest = axios.request,
+): Promise<ScheduledMessageResponse> {
+  return (await request(
+    apiKey,
+    { method: 'get', url: `/schedule/${encodeURIComponent(sourceTrackingId)}` },
+    http,
+  )) as ScheduledMessageResponse
+}
+
+export async function rescheduleEmail(
+  apiKey: string,
+  sourceTrackingId: string,
+  scheduledAt: string,
+  http: HttpRequest = axios.request,
+): Promise<ScheduledMessageResponse> {
+  return (await request(
+    apiKey,
+    {
+      method: 'patch',
+      url: `/schedule/${encodeURIComponent(sourceTrackingId)}`,
+      data: { scheduled_at: scheduledAt },
+    },
+    http,
+  )) as ScheduledMessageResponse
+}
+
+export async function cancelScheduledEmail(
+  apiKey: string,
+  sourceTrackingId: string,
+  http: HttpRequest = axios.request,
+): Promise<ScheduledMessageResponse> {
+  return (await request(
+    apiKey,
+    {
+      method: 'post',
+      url: `/schedule/${encodeURIComponent(sourceTrackingId)}/cancel`,
+      data: {},
+    },
+    http,
+  )) as ScheduledMessageResponse
+}
+
 export async function getEmailDisposition(
   apiKey: string,
   sourceTrackingId: string,
