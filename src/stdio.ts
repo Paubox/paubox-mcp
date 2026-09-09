@@ -83,8 +83,7 @@ async function emailRequest(
   if (
     record.data === undefined &&
     record.sourceTrackingId === undefined &&
-    record.errors === undefined &&
-    record.state === undefined
+    record.errors === undefined
   ) {
     throw new Error("Unexpected response from the Paubox Email API")
   }
@@ -419,7 +418,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}\nState: ${response.state}`,
+            text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}`,
           },
         ],
       }

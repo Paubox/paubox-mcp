@@ -375,7 +375,7 @@ const mcpHandler = createMcpHandler(
             content: [
               {
                 type: "text",
-                text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}\nState: ${response.state}`,
+                text: `Email rescheduled\n\nSource Tracking ID: ${response.sourceTrackingId}\nNew scheduled time: ${response.scheduledAt}`,
               },
             ],
           }

@@ -53,8 +53,7 @@ function isRecognizableBody(body: unknown): boolean {
   return (
     record.data !== undefined ||
     record.sourceTrackingId !== undefined ||
-    record.errors !== undefined ||
-    record.state !== undefined
+    record.errors !== undefined
   )
 }
 
