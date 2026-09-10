@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { validateFormId } from "./validate-form-id.js"
+import { normalizeAttachments, renderHtmlBody, type EmailAttachment } from "./email-body.js"
 
 const apiKey = process.env.PAUBOX_API_KEY
 
@@ -32,6 +33,7 @@ interface SendMessageOptions {
   cc?: string[]
   bcc?: string[]
   forceSecureNotification?: boolean
+  attachments?: EmailAttachment[]
 }
 
 interface EmailApiResponse {
@@ -128,7 +130,7 @@ async function sendMessage(options: SendMessageOptions): Promise<EmailApiRespons
             "text/plain": options.textContent,
             "text/html": Buffer.from(options.htmlContent, "utf-8").toString("base64"),
           },
-          attachments: [],
+          attachments: options.attachments ?? [],
           allowNonTLS: false,
           forceSecureNotification: options.forceSecureNotification ?? false,
         },
@@ -163,7 +165,7 @@ async function scheduleMessage(
             "text/plain": options.textContent,
             "text/html": Buffer.from(options.htmlContent, "utf-8").toString("base64"),
           },
-          attachments: [],
+          attachments: options.attachments ?? [],
           allowNonTLS: false,
           forceSecureNotification: options.forceSecureNotification ?? false,
         },
@@ -224,6 +226,16 @@ server.tool(
     cc: z.array(z.string().email()).optional(),
     bcc: z.array(z.string().email()).optional(),
     forceSecureNotification: z.boolean().optional(),
+    attachments: z
+      .array(
+        z.object({
+          fileName: z.string().describe("Filename shown to the recipient, e.g. report.pdf"),
+          contentType: z.string().describe("MIME type, e.g. application/pdf"),
+          content: z.string().describe("Base64-encoded file content"),
+        })
+      )
+      .optional()
+      .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
   },
   async ({
     from,
@@ -233,6 +245,7 @@ server.tool(
     cc,
     bcc,
     forceSecureNotification,
+    attachments,
   }: {
     from: string
     to: string[]
@@ -241,6 +254,7 @@ server.tool(
     cc?: string[]
     bcc?: string[]
     forceSecureNotification?: boolean
+    attachments?: EmailAttachment[]
   }) => {
     try {
       const response = await sendMessage({
@@ -250,7 +264,8 @@ server.tool(
         bcc,
         subject,
         textContent: message.trim(),
-        htmlContent: `<p>${message.trim()}</p>`,
+        htmlContent: renderHtmlBody(message),
+        attachments: normalizeAttachments(attachments),
         forceSecureNotification,
       })
 
@@ -318,6 +333,16 @@ server.tool(
     cc: z.array(z.string().email()).optional(),
     bcc: z.array(z.string().email()).optional(),
     forceSecureNotification: z.boolean().optional(),
+    attachments: z
+      .array(
+        z.object({
+          fileName: z.string().describe("Filename shown to the recipient, e.g. report.pdf"),
+          contentType: z.string().describe("MIME type, e.g. application/pdf"),
+          content: z.string().describe("Base64-encoded file content"),
+        })
+      )
+      .optional()
+      .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
   },
   async ({
     from,
@@ -328,6 +353,7 @@ server.tool(
     cc,
     bcc,
     forceSecureNotification,
+    attachments,
   }: {
     from: string
     to: string[]
@@ -337,6 +363,7 @@ server.tool(
     cc?: string[]
     bcc?: string[]
     forceSecureNotification?: boolean
+    attachments?: EmailAttachment[]
   }) => {
     try {
       const response = await scheduleMessage({
@@ -346,7 +373,8 @@ server.tool(
         bcc,
         subject,
         textContent: message.trim(),
-        htmlContent: `<p>${message.trim()}</p>`,
+        htmlContent: renderHtmlBody(message),
+        attachments: normalizeAttachments(attachments),
         forceSecureNotification,
         scheduledAt,
       })

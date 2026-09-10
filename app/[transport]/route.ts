@@ -5,6 +5,7 @@ import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
 import { checkPauboxCredentials } from '../../lib/paubox-credentials'
 import { sendEmail, getEmailDisposition, scheduleEmail, getScheduledEmail, rescheduleEmail, cancelScheduledEmail } from '../../lib/paubox-email'
+import { normalizeAttachments, renderHtmlBody, type EmailAttachment } from '../../lib/email-body'
 import {
   FORMS_BASE_URL,
   createFormsClient,
@@ -146,8 +147,18 @@ const mcpHandler = createMcpHandler(
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         forceSecureNotification: z.boolean().optional(),
+        attachments: z
+          .array(
+            z.object({
+              fileName: z.string().describe("Filename shown to the recipient, e.g. report.pdf"),
+              contentType: z.string().describe("MIME type, e.g. application/pdf"),
+              content: z.string().describe("Base64-encoded file content"),
+            })
+          )
+          .optional()
+          .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
       },
-      async ({ apiKey: paramKey, from, to, subject, message, cc, bcc, forceSecureNotification }: {
+      async ({ apiKey: paramKey, from, to, subject, message, cc, bcc, forceSecureNotification, attachments }: {
         apiKey?: string;
         from: string;
         to: string[];
@@ -156,6 +167,7 @@ const mcpHandler = createMcpHandler(
         cc?: string[];
         bcc?: string[];
         forceSecureNotification?: boolean;
+        attachments?: EmailAttachment[];
       }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
@@ -172,7 +184,8 @@ const mcpHandler = createMcpHandler(
             to,
             subject,
             textContent: message.trim(),
-            htmlContent: `<p>${message.trim()}</p>`,
+            htmlContent: renderHtmlBody(message),
+            attachments: normalizeAttachments(attachments),
             cc,
             bcc,
             forceSecureNotification: forceSecureNotification ?? false,
@@ -255,8 +268,18 @@ const mcpHandler = createMcpHandler(
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         forceSecureNotification: z.boolean().optional(),
+        attachments: z
+          .array(
+            z.object({
+              fileName: z.string().describe("Filename shown to the recipient, e.g. report.pdf"),
+              contentType: z.string().describe("MIME type, e.g. application/pdf"),
+              content: z.string().describe("Base64-encoded file content"),
+            })
+          )
+          .optional()
+          .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
       },
-      async ({ apiKey: paramKey, from, to, subject, message, scheduledAt, cc, bcc, forceSecureNotification }: {
+      async ({ apiKey: paramKey, from, to, subject, message, scheduledAt, cc, bcc, forceSecureNotification, attachments }: {
         apiKey?: string;
         from: string;
         to: string[];
@@ -266,6 +289,7 @@ const mcpHandler = createMcpHandler(
         cc?: string[];
         bcc?: string[];
         forceSecureNotification?: boolean;
+        attachments?: EmailAttachment[];
       }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
@@ -282,7 +306,8 @@ const mcpHandler = createMcpHandler(
             to,
             subject,
             textContent: message.trim(),
-            htmlContent: `<p>${message.trim()}</p>`,
+            htmlContent: renderHtmlBody(message),
+            attachments: normalizeAttachments(attachments),
             cc,
             bcc,
             forceSecureNotification: forceSecureNotification ?? false,

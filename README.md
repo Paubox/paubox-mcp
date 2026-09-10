@@ -195,10 +195,13 @@ Sends a secure email using your Paubox API key.
 - `from`: Sender email address (string, required)
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
-- `message`: Email content (string, required)
+- `message`: Email content (string, required). Plain text; blank lines become paragraphs and single newlines become line breaks in the HTML version. Bare URLs are made clickable.
 - `cc`: CC recipients (array, optional)
 - `bcc`: BCC recipients (array, optional)
 - `forceSecureNotification`: Force secure notification (boolean, optional)
+- `attachments`: File attachments (array, optional). Each item is `{ fileName, contentType, content }` where `content` is the base64-encoded file. 25 MB total limit across all attachments.
+
+`schedule_email` accepts the same parameters (including `attachments`) plus an ISO 8601 `scheduledAt`.
 
 **Example Usage (credentials via connector):**
 \`\`\`
