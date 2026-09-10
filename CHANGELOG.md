@@ -6,6 +6,13 @@ This changelog tracks the **`@paubox/mcp` npm package** — the stdio server tha
 AI clients spawn locally. The hosted server at `https://mcp.paubox.com/mcp` is
 deployed independently from `main` and is not versioned here.
 
+## [1.0.1](https://github.com/Paubox/paubox-mcp/compare/v1.0.0...v1.0.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* publish job must run on Node 22, not 24 ([#66](https://github.com/Paubox/paubox-mcp/issues/66)) ([2efb574](https://github.com/Paubox/paubox-mcp/commit/2efb574fd5ba22d5053aef5d7f350e21200b2ab5))
+
 ## 1.0.0 (2026-09-10)
 
 First tagged release, and the first version for which the `npx @paubox/mcp@latest`
