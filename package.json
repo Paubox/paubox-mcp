@@ -1,6 +1,14 @@
 {
   "name": "@paubox/mcp",
   "version": "1.0.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paubox/paubox-mcp.git"
+  },
+  "homepage": "https://github.com/Paubox/paubox-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Paubox/paubox-mcp/issues"
+  },
   "license": "Apache-2.0",
   "bin": {
     "paubox-mcp": "dist/stdio.js"
