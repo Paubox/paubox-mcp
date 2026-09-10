@@ -5,7 +5,7 @@ import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
 import { checkPauboxCredentials } from '../../lib/paubox-credentials'
 import { sendEmail, getEmailDisposition, scheduleEmail, getScheduledEmail, rescheduleEmail, cancelScheduledEmail } from '../../lib/paubox-email'
-import { normalizeAttachments, renderHtmlBody, type EmailAttachment } from '../../lib/email-body'
+import { normalizeAttachments, chooseHtmlBody, type EmailAttachment } from '../../lib/email-body'
 import {
   FORMS_BASE_URL,
   createFormsClient,
@@ -144,6 +144,7 @@ const mcpHandler = createMcpHandler(
         to: z.array(z.string()),
         subject: z.string(),
         message: z.string(),
+        html: z.string().optional().describe("Optional HTML body used verbatim as the text/html part; message remains the plain-text fallback. Omit to have message rendered to HTML automatically."),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         forceSecureNotification: z.boolean().optional(),
@@ -158,12 +159,13 @@ const mcpHandler = createMcpHandler(
           .optional()
           .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
       },
-      async ({ apiKey: paramKey, from, to, subject, message, cc, bcc, forceSecureNotification, attachments }: {
+      async ({ apiKey: paramKey, from, to, subject, message, html, cc, bcc, forceSecureNotification, attachments }: {
         apiKey?: string;
         from: string;
         to: string[];
         subject: string;
         message: string;
+        html?: string;
         cc?: string[];
         bcc?: string[];
         forceSecureNotification?: boolean;
@@ -184,7 +186,7 @@ const mcpHandler = createMcpHandler(
             to,
             subject,
             textContent: message.trim(),
-            htmlContent: renderHtmlBody(message),
+            htmlContent: chooseHtmlBody(message, html),
             attachments: normalizeAttachments(attachments),
             cc,
             bcc,
@@ -264,6 +266,7 @@ const mcpHandler = createMcpHandler(
         to: z.array(z.string()),
         subject: z.string(),
         message: z.string(),
+        html: z.string().optional().describe("Optional HTML body used verbatim as the text/html part; message remains the plain-text fallback. Omit to have message rendered to HTML automatically."),
         scheduledAt: z.string().describe("ISO 8601 datetime for when the email should be sent (e.g. 2025-12-25T15:00:00Z)"),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
@@ -279,12 +282,13 @@ const mcpHandler = createMcpHandler(
           .optional()
           .describe("Optional file attachments (base64-encoded; 25 MB total limit)"),
       },
-      async ({ apiKey: paramKey, from, to, subject, message, scheduledAt, cc, bcc, forceSecureNotification, attachments }: {
+      async ({ apiKey: paramKey, from, to, subject, message, html, scheduledAt, cc, bcc, forceSecureNotification, attachments }: {
         apiKey?: string;
         from: string;
         to: string[];
         subject: string;
         message: string;
+        html?: string;
         scheduledAt: string;
         cc?: string[];
         bcc?: string[];
@@ -306,7 +310,7 @@ const mcpHandler = createMcpHandler(
             to,
             subject,
             textContent: message.trim(),
-            htmlContent: renderHtmlBody(message),
+            htmlContent: chooseHtmlBody(message, html),
             attachments: normalizeAttachments(attachments),
             cc,
             bcc,

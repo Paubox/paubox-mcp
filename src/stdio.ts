@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { validateFormId } from "./validate-form-id.js"
-import { normalizeAttachments, renderHtmlBody, type EmailAttachment } from "./email-body.js"
+import { normalizeAttachments, chooseHtmlBody, type EmailAttachment } from "./email-body.js"
 
 const apiKey = process.env.PAUBOX_API_KEY
 
@@ -223,6 +223,7 @@ server.tool(
     to: z.array(z.string().email()).min(1, "At least one recipient is required"),
     subject: z.string().min(1, "Subject is required"),
     message: z.string().min(1, "Message content is required"),
+    html: z.string().optional().describe("Optional HTML body used verbatim as the text/html part; message remains the plain-text fallback. Omit to have message rendered to HTML automatically."),
     cc: z.array(z.string().email()).optional(),
     bcc: z.array(z.string().email()).optional(),
     forceSecureNotification: z.boolean().optional(),
@@ -242,6 +243,7 @@ server.tool(
     to,
     subject,
     message,
+    html,
     cc,
     bcc,
     forceSecureNotification,
@@ -251,6 +253,7 @@ server.tool(
     to: string[]
     subject: string
     message: string
+    html?: string
     cc?: string[]
     bcc?: string[]
     forceSecureNotification?: boolean
@@ -264,7 +267,7 @@ server.tool(
         bcc,
         subject,
         textContent: message.trim(),
-        htmlContent: renderHtmlBody(message),
+        htmlContent: chooseHtmlBody(message, html),
         attachments: normalizeAttachments(attachments),
         forceSecureNotification,
       })
@@ -329,6 +332,7 @@ server.tool(
     to: z.array(z.string().email()).min(1, "At least one recipient is required"),
     subject: z.string().min(1, "Subject is required"),
     message: z.string().min(1, "Message content is required"),
+    html: z.string().optional().describe("Optional HTML body used verbatim as the text/html part; message remains the plain-text fallback. Omit to have message rendered to HTML automatically."),
     scheduledAt: z.string().describe("ISO 8601 datetime for when the email should be sent (e.g. 2025-12-25T15:00:00Z)"),
     cc: z.array(z.string().email()).optional(),
     bcc: z.array(z.string().email()).optional(),
@@ -349,6 +353,7 @@ server.tool(
     to,
     subject,
     message,
+    html,
     scheduledAt,
     cc,
     bcc,
@@ -359,6 +364,7 @@ server.tool(
     to: string[]
     subject: string
     message: string
+    html?: string
     scheduledAt: string
     cc?: string[]
     bcc?: string[]
@@ -373,7 +379,7 @@ server.tool(
         bcc,
         subject,
         textContent: message.trim(),
-        htmlContent: renderHtmlBody(message),
+        htmlContent: chooseHtmlBody(message, html),
         attachments: normalizeAttachments(attachments),
         forceSecureNotification,
         scheduledAt,

@@ -196,6 +196,7 @@ Sends a secure email using your Paubox API key.
 - `to`: Recipient email addresses (array, required)
 - `subject`: Email subject (string, required)
 - `message`: Email content (string, required). Plain text; blank lines become paragraphs and single newlines become line breaks in the HTML version. Bare URLs are made clickable.
+- `html`: HTML body (string, optional). Used verbatim as the `text/html` part when provided; `message` is still sent as the `text/plain` fallback. Omit it to have `message` rendered to HTML automatically.
 - `cc`: CC recipients (array, optional)
 - `bcc`: BCC recipients (array, optional)
 - `forceSecureNotification`: Force secure notification (boolean, optional)

@@ -7,6 +7,7 @@ import {
   escapeHtml,
   normalizeAttachments,
   renderHtmlBody,
+  chooseHtmlBody,
   MAX_ATTACHMENT_BYTES,
 } from '../lib/email-body'
 import * as stdioCopy from '../src/email-body'
@@ -54,6 +55,18 @@ describe('renderHtmlBody', () => {
 
   it('returns an empty string for whitespace-only input', () => {
     expect(renderHtmlBody('   \n\n ')).toBe('')
+  })
+})
+
+describe('chooseHtmlBody', () => {
+  it('uses the explicit html verbatim when provided', () => {
+    const html = '<h2>Scholarship News</h2><p><a href="https://x.test">RSVP</a></p>'
+    expect(chooseHtmlBody('plain fallback', html)).toBe(html)
+  })
+
+  it('falls back to rendering the plain-text message when html is missing or blank', () => {
+    expect(chooseHtmlBody('a\n\nb', undefined)).toBe(renderHtmlBody('a\n\nb'))
+    expect(chooseHtmlBody('a\n\nb', '   ')).toBe(renderHtmlBody('a\n\nb'))
   })
 })
 
@@ -132,6 +145,7 @@ describe('src/email-body.ts stays in sync with lib/email-body.ts', () => {
   it('exports the same helpers', () => {
     expect(typeof stdioCopy.renderHtmlBody).toBe('function')
     expect(typeof stdioCopy.normalizeAttachments).toBe('function')
+    expect(typeof stdioCopy.chooseHtmlBody).toBe('function')
     expect(stdioCopy.renderHtmlBody('a\n\nb')).toBe(renderHtmlBody('a\n\nb'))
   })
 })
