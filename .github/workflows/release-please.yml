@@ -1,0 +1,96 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Maintains a release PR that bumps package.json and writes CHANGELOG.md.
+      # Merging that PR creates the tag and the GitHub release, which gates the
+      # npm publish below.
+      #
+      # This versions the @paubox/mcp npm package only. The hosted server at
+      # mcp.paubox.com deploys from main via deploy-prod.yml on its own cadence
+      # and is deliberately not coupled to these releases.
+      #
+      # The manifest starts at 0.0.0 because nothing has ever been published:
+      # the package is not on npm and the repo had no tags. package.json's
+      # 0.1.0 was never released.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Publish ${{ needs.release-please.outputs.tag_name }} to npm
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for OIDC trusted publishing.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 ships npm 11.x. Trusted publishing needs npm >= 11.5.1, and
+          # Node 22 ships 10.9 — publishing from 22 fails to authenticate, and
+          # the error surfaces as a misleading 404 on PUT.
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build the stdio server
+        # package.json ships only `dist` and its bin points at dist/stdio.js,
+        # so this is the build that matters for the package. `pnpm build` is
+        # the Next.js build for the hosted server and is not needed here.
+        run: pnpm run build:stdio
+
+      - name: Verify the tag, package.json and the built bin agree
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          if [ "v${PKG}" != "${RELEASE_TAG}" ]; then
+            echo "::error::package.json is ${PKG} but the tag is ${RELEASE_TAG}"
+            exit 1
+          fi
+          BIN=$(node -p "require('./package.json').bin['paubox-mcp']")
+          test -f "$BIN" || { echo "::error::bin ${BIN} was not produced by build:stdio" >&2; exit 1; }
+          echo "package.json ${PKG} matches ${RELEASE_TAG}, and ${BIN} exists"
+
+      # npm has no "pending publisher" — a trusted publisher can only be
+      # configured on a package that already exists, so the very first publish
+      # of a new package cannot use OIDC. Rather than fail the release with a
+      # 404 that reads like a registry fault, detect the bootstrap case and
+      # explain it. Once 1.0.0 exists and a trusted publisher is configured,
+      # this step publishes normally and never warns again.
+      - name: Publish to npm
+        run: |
+          if ! npm view @paubox/mcp version >/dev/null 2>&1; then
+            echo "::warning title=First publish must be manual::@paubox/mcp does not exist on npm yet, and npm cannot configure a trusted publisher for a package that does not exist. ${GITHUB_REF_NAME} is tagged and released on GitHub, but not published. To finish: check out ${{ needs.release-please.outputs.tag_name }}, run 'pnpm install && pnpm run build:stdio && npm publish --access public' with 2FA, then add a trusted publisher at https://www.npmjs.com/package/@paubox/mcp/access for Paubox/paubox-mcp with workflow release-please.yml. Later releases publish automatically."
+            exit 0
+          fi
+          npm publish --provenance --access public
