@@ -8,10 +8,16 @@ deployed independently from `main` and is not versioned here.
 
 ## [1.0.1](https://github.com/Paubox/paubox-mcp/compare/v1.0.0...v1.0.1) (2026-09-10)
 
+**No functional changes.** The package contents are identical to `1.0.0`.
 
-### Bug Fixes
+This release exists to exercise the automated publish path. `1.0.0` was
+published by hand, because npm cannot configure a trusted publisher for a
+package that does not yet exist — so this is the first release to go out over
+OIDC, and the first to prove the pipeline works end to end.
 
-* publish job must run on Node 22, not 24 ([#66](https://github.com/Paubox/paubox-mcp/issues/66)) ([2efb574](https://github.com/Paubox/paubox-mcp/commit/2efb574fd5ba22d5053aef5d7f350e21200b2ab5))
+### Release tooling
+
+- Publish job runs on Node 22 with npm upgraded in place, rather than Node 24. `engines.node` is `22.x` and pnpm enforces it, so Node 24 failed at install before reaching the publish step ([#66](https://github.com/Paubox/paubox-mcp/issues/66))
 
 ## 1.0.0 (2026-09-10)
 
