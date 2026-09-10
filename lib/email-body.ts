@@ -105,3 +105,13 @@ export function renderHtmlBody(text: string): string {
     })
     .join('\n')
 }
+
+// Picks the HTML part for an outgoing message. When the caller supplies
+// `html`, it is used verbatim (the caller is the sender; their own markup is
+// theirs to control) and `message` remains the text/plain fallback. When
+// they do not, the text/plain body is rendered into safe HTML as before.
+export function chooseHtmlBody(message: string, html: string | undefined): string {
+  const explicit = (html ?? '').trim()
+  if (explicit.length > 0) return explicit
+  return renderHtmlBody(message)
+}
