@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios'
+import type { EmailAttachment } from './email-body'
 
 // All Email API requests are served under /v1/email; the bare /v1 prefix is
 // not routed and dies at the gateway with an HTML 404.
@@ -20,6 +21,8 @@ export interface SendEmailOptions {
   cc?: string[]
   bcc?: string[]
   forceSecureNotification?: boolean
+  /** Already validated via normalizeAttachments(); passed through as-is. */
+  attachments?: EmailAttachment[]
 }
 
 export interface SendEmailResponse {
@@ -144,7 +147,7 @@ export async function sendEmail(
           // like paubox-node did.
           'text/html': Buffer.from(options.htmlContent).toString('base64'),
         },
-        attachments: [],
+        attachments: options.attachments ?? [],
         allowNonTLS: false,
         forceSecureNotification: options.forceSecureNotification ?? false,
       },
@@ -173,7 +176,7 @@ export async function scheduleEmail(
           'text/plain': options.textContent,
           'text/html': Buffer.from(options.htmlContent).toString('base64'),
         },
-        attachments: [],
+        attachments: options.attachments ?? [],
         allowNonTLS: false,
         forceSecureNotification: options.forceSecureNotification ?? false,
       },
