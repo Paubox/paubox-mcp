@@ -50,11 +50,24 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Node 24 ships npm 11.x. Trusted publishing needs npm >= 11.5.1, and
-          # Node 22 ships 10.9 — publishing from 22 fails to authenticate, and
-          # the error surfaces as a misleading 404 on PUT.
-          node-version: "24"
+          # Must be 22: package.json declares engines.node "22.x" and pnpm
+          # enforces it, refusing to install on anything else. Node 24 fails
+          # here with ERR_PNPM_UNSUPPORTED_ENGINE before any publish is
+          # attempted.
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for trusted publishing
+        # Node 22 ships npm 10.9, but trusted publishing needs >= 11.5.1.
+        # Upgrading npm in place satisfies that without violating engines.node
+        # — which is why this job cannot simply use Node 24.
+        #
+        # Without this, the OIDC exchange fails and npm reports a 404 on PUT,
+        # which reads like a missing package or a registry fault rather than a
+        # client-version problem.
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: Install pnpm
         run: npm install -g pnpm@9
