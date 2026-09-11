@@ -24,9 +24,8 @@ jobs:
       # mcp.paubox.com deploys from main via deploy-prod.yml on its own cadence
       # and is deliberately not coupled to these releases.
       #
-      # The manifest starts at 0.0.0 because nothing has ever been published:
-      # the package is not on npm and the repo had no tags. package.json's
-      # 0.1.0 was never released.
+      # extra-files also carries the version literal in src/stdio.ts, which the
+      # server reports to clients in the initialize handshake.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -50,24 +49,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Must be 22: package.json declares engines.node "22.x" and pnpm
-          # enforces it, refusing to install on anything else. Node 24 fails
-          # here with ERR_PNPM_UNSUPPORTED_ENGINE before any publish is
-          # attempted.
-          node-version: "22"
+          # 24 for the npm it ships: trusted publishing needs npm >= 11.5.1,
+          # and Node 22's npm 10.9 is too old — the OIDC exchange fails there
+          # with a 404 on PUT, which reads like a missing package rather than a
+          # client-version problem. pnpm enforces engines.node, so this only
+          # works because that range is ">=22".
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Upgrade npm for trusted publishing
-        # Node 22 ships npm 10.9, but trusted publishing needs >= 11.5.1.
-        # Upgrading npm in place satisfies that without violating engines.node
-        # — which is why this job cannot simply use Node 24.
-        #
-        # Without this, the OIDC exchange fails and npm reports a 404 on PUT,
-        # which reads like a missing package or a registry fault rather than a
-        # client-version problem.
-        run: |
-          npm install -g npm@latest
-          npm --version
 
       - name: Install pnpm
         run: npm install -g pnpm@9
@@ -94,16 +82,13 @@ jobs:
           test -f "$BIN" || { echo "::error::bin ${BIN} was not produced by build:stdio" >&2; exit 1; }
           echo "package.json ${PKG} matches ${RELEASE_TAG}, and ${BIN} exists"
 
-      # npm has no "pending publisher" — a trusted publisher can only be
-      # configured on a package that already exists, so the very first publish
-      # of a new package cannot use OIDC. Rather than fail the release with a
-      # 404 that reads like a registry fault, detect the bootstrap case and
-      # explain it. Once 1.0.0 exists and a trusted publisher is configured,
-      # this step publishes normally and never warns again.
+      # Publishes over OIDC against the trusted publisher configured for this
+      # repo and this workflow filename; there is no npm token anywhere.
+      #
+      # This step used to guard on `npm view` to handle the bootstrap case, npm
+      # having no "pending publisher" for a package that does not exist yet.
+      # @paubox/mcp exists now, and that guard could swallow a real release: a
+      # transient `npm view` failure would take the warn-and-exit-0 branch and
+      # leave a tag with nothing published behind it.
       - name: Publish to npm
-        run: |
-          if ! npm view @paubox/mcp version >/dev/null 2>&1; then
-            echo "::warning title=First publish must be manual::@paubox/mcp does not exist on npm yet, and npm cannot configure a trusted publisher for a package that does not exist. ${GITHUB_REF_NAME} is tagged and released on GitHub, but not published. To finish: check out ${{ needs.release-please.outputs.tag_name }}, run 'pnpm install && pnpm run build:stdio && npm publish --access public' with 2FA, then add a trusted publisher at https://www.npmjs.com/package/@paubox/mcp/access for Paubox/paubox-mcp with workflow release-please.yml. Later releases publish automatically."
-            exit 0
-          fi
-          npm publish --provenance --access public
+        run: npm publish --provenance --access public

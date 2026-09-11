@@ -10,7 +10,15 @@ on:
 
 jobs:
   checks:
+    name: Checks (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # engines.node is ">=22", and the release job builds and publishes on
+        # 24 — so 24 has to be proven on PRs. Otherwise a 24-only build failure
+        # would first appear in the publish job, with the tag already cut.
+        node: ["22", "24"]
     permissions:
       contents: read
       packages: read
@@ -24,7 +32,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node }}
 
       - name: Install pnpm
         run: npm install -g pnpm@9
