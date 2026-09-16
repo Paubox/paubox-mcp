@@ -6,6 +6,13 @@ This changelog tracks the **`@paubox/mcp` npm package** — the stdio server tha
 AI clients spawn locally. The hosted server at `https://mcp.paubox.com/mcp` is
 deployed independently from `main` and is not versioned here.
 
+## [1.1.0](https://github.com/Paubox/paubox-mcp/compare/v1.0.3...v1.1.0) (2026-09-16)
+
+
+### Features
+
+* add receiving (inbound email) tools ([#73](https://github.com/Paubox/paubox-mcp/issues/73)) ([4454cab](https://github.com/Paubox/paubox-mcp/commit/4454cab5c96890d42dcfc4c0d72e4e219402843e))
+
 ## [1.0.3](https://github.com/Paubox/paubox-mcp/compare/v1.0.2...v1.0.3) (2026-09-11)
 
 
