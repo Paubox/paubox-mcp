@@ -2074,6 +2074,306 @@ server.tool(
   }
 )
 
+// ---------------------------------------------------------------------------
+// Paubox Receiving (inbound email) tools
+//
+// These call the Receiving API at api.paubox.com/v1/email/receiving, which
+// uses the same API key as the email tools. The client is inlined here for
+// the same reason as the other clients: the stdio build cannot import from
+// lib/.
+// ---------------------------------------------------------------------------
+
+async function receivingRequest(
+  path: string,
+  options: {
+    method?: string
+    query?: Record<string, string | number | undefined>
+    body?: unknown
+  } = {}
+): Promise<unknown> {
+  const url = new URL(`${EMAIL_API_BASE_URL}${path}`)
+  if (options.query) {
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value !== undefined) url.searchParams.set(key, String(value))
+    }
+  }
+  const response = await fetch(url.toString(), {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey!.trim()}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  let raw = ""
+  try {
+    raw = await response.text()
+  } catch {
+    // ignore unreadable bodies
+  }
+  if (!response.ok) {
+    const detail = raw ? raw.slice(0, 300) : ""
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `Paubox Receiving API rejected the API key (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
+      )
+    }
+    throw new Error(
+      `Paubox Receiving API error (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
+    )
+  }
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function receivingJson(payload: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+}
+
+function receivingFailure(action: string, error: unknown) {
+  return { content: [{ type: "text" as const, text: `Failed to ${action}: ${errorText(error)}` }] }
+}
+
+server.tool(
+  "list_receiving_domains",
+  "List receiving (inbound email) domains configured for this Paubox account.",
+  {},
+  async () => {
+    try {
+      return receivingJson(await receivingRequest("/receiving/domains"))
+    } catch (error) {
+      return receivingFailure("list receiving domains", error)
+    }
+  }
+)
+
+server.tool(
+  "create_receiving_domain",
+  "Create a new receiving (inbound email) domain. Optionally provide a slug; one is generated if omitted.",
+  {
+    slug: z.string().optional().describe("Domain slug (generated if omitted)"),
+  },
+  async ({ slug }: { slug?: string }) => {
+    try {
+      const body: Record<string, unknown> = {}
+      if (slug !== undefined) body.slug = slug
+      return receivingJson(await receivingRequest("/receiving/domains", { method: "POST", body }))
+    } catch (error) {
+      return receivingFailure("create receiving domain", error)
+    }
+  }
+)
+
+server.tool(
+  "get_receiving_domain",
+  "Get details of a specific receiving (inbound email) domain by ID.",
+  {
+    id: z.string().min(1, "Domain ID is required"),
+  },
+  async ({ id }: { id: string }) => {
+    try {
+      return receivingJson(
+        await receivingRequest(`/receiving/domains/${encodeURIComponent(id)}`)
+      )
+    } catch (error) {
+      return receivingFailure("get receiving domain", error)
+    }
+  }
+)
+
+server.tool(
+  "delete_receiving_domain",
+  "Delete a receiving (inbound email) domain by ID.",
+  {
+    id: z.string().min(1, "Domain ID is required"),
+  },
+  async ({ id }: { id: string }) => {
+    try {
+      await receivingRequest(`/receiving/domains/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      })
+      return { content: [{ type: "text" as const, text: "Receiving domain deleted." }] }
+    } catch (error) {
+      return receivingFailure("delete receiving domain", error)
+    }
+  }
+)
+
+server.tool(
+  "list_receiving_mailboxes",
+  "List mailboxes under a receiving (inbound email) domain.",
+  {
+    domainId: z.string().min(1, "Domain ID is required"),
+  },
+  async ({ domainId }: { domainId: string }) => {
+    try {
+      return receivingJson(
+        await receivingRequest(
+          `/receiving/domains/${encodeURIComponent(domainId)}/mailboxes`
+        )
+      )
+    } catch (error) {
+      return receivingFailure("list receiving mailboxes", error)
+    }
+  }
+)
+
+server.tool(
+  "create_receiving_mailbox",
+  "Create a mailbox under a receiving (inbound email) domain.",
+  {
+    domainId: z.string().min(1, "Domain ID is required"),
+    name: z.string().min(1, "Mailbox name is required"),
+    password: z.string().min(1, "Password is required"),
+    quota_bytes: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Mailbox quota in bytes"),
+  },
+  async ({
+    domainId,
+    name,
+    password,
+    quota_bytes,
+  }: {
+    domainId: string
+    name: string
+    password: string
+    quota_bytes?: number
+  }) => {
+    try {
+      const body: Record<string, unknown> = { name, password }
+      if (quota_bytes !== undefined) body.quota_bytes = quota_bytes
+      return receivingJson(
+        await receivingRequest(
+          `/receiving/domains/${encodeURIComponent(domainId)}/mailboxes`,
+          { method: "POST", body }
+        )
+      )
+    } catch (error) {
+      return receivingFailure("create receiving mailbox", error)
+    }
+  }
+)
+
+server.tool(
+  "get_receiving_mailbox",
+  "Get details of a specific mailbox under a receiving (inbound email) domain.",
+  {
+    domainId: z.string().min(1, "Domain ID is required"),
+    mailboxId: z.string().min(1, "Mailbox ID is required"),
+  },
+  async ({ domainId, mailboxId }: { domainId: string; mailboxId: string }) => {
+    try {
+      return receivingJson(
+        await receivingRequest(
+          `/receiving/domains/${encodeURIComponent(domainId)}/mailboxes/${encodeURIComponent(mailboxId)}`
+        )
+      )
+    } catch (error) {
+      return receivingFailure("get receiving mailbox", error)
+    }
+  }
+)
+
+server.tool(
+  "delete_receiving_mailbox",
+  "Delete a mailbox under a receiving (inbound email) domain.",
+  {
+    domainId: z.string().min(1, "Domain ID is required"),
+    mailboxId: z.string().min(1, "Mailbox ID is required"),
+  },
+  async ({ domainId, mailboxId }: { domainId: string; mailboxId: string }) => {
+    try {
+      await receivingRequest(
+        `/receiving/domains/${encodeURIComponent(domainId)}/mailboxes/${encodeURIComponent(mailboxId)}`,
+        { method: "DELETE" }
+      )
+      return { content: [{ type: "text" as const, text: "Receiving mailbox deleted." }] }
+    } catch (error) {
+      return receivingFailure("delete receiving mailbox", error)
+    }
+  }
+)
+
+server.tool(
+  "list_received_emails",
+  "List received (inbound) emails. Supports cursor-based pagination with limit, after, and before parameters.",
+  {
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Maximum number of results to return"),
+    after: z.string().optional().describe("Cursor for forward pagination"),
+    before: z.string().optional().describe("Cursor for backward pagination"),
+  },
+  async ({
+    limit,
+    after,
+    before,
+  }: {
+    limit?: number
+    after?: string
+    before?: string
+  }) => {
+    try {
+      return receivingJson(
+        await receivingRequest("/receiving", {
+          query: { limit, after, before },
+        })
+      )
+    } catch (error) {
+      return receivingFailure("list received emails", error)
+    }
+  }
+)
+
+server.tool(
+  "get_received_email",
+  "Get details of a specific received (inbound) email by ID.",
+  {
+    emailId: z.string().min(1, "Email ID is required"),
+  },
+  async ({ emailId }: { emailId: string }) => {
+    try {
+      return receivingJson(
+        await receivingRequest(`/receiving/${encodeURIComponent(emailId)}`)
+      )
+    } catch (error) {
+      return receivingFailure("get received email", error)
+    }
+  }
+)
+
+server.tool(
+  "get_received_email_attachment",
+  "Download an attachment from a received (inbound) email.",
+  {
+    emailId: z.string().min(1, "Email ID is required"),
+    blobId: z.string().min(1, "Blob ID is required"),
+  },
+  async ({ emailId, blobId }: { emailId: string; blobId: string }) => {
+    try {
+      return receivingJson(
+        await receivingRequest(
+          `/receiving/${encodeURIComponent(emailId)}/attachments/${encodeURIComponent(blobId)}`
+        )
+      )
+    } catch (error) {
+      return receivingFailure("get received email attachment", error)
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)

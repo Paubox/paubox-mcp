@@ -18,6 +18,7 @@ import {
   AnalyticsReport,
   createMarketingClient,
 } from '../../lib/paubox-marketing'
+import { createReceivingClient } from '../../lib/paubox-receiving'
 
 type RequestCredentials = {
   apiKey?: string
@@ -1434,6 +1435,261 @@ const mcpHandler = createMcpHandler(
           return jsonText(await client.getBulkJob(bulkJobId))
         } catch (error) {
           return { content: [{ type: "text", text: marketingFailureText("get marketing bulk job", error) }] }
+        }
+      }
+    )
+
+    const receivingFailureText = (action: string, error: unknown) =>
+      `Failed to ${action}: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+
+    server.tool(
+      "list_receiving_domains",
+      "List receiving (inbound email) domains configured for this Paubox account.",
+      {
+        apiKey: z.string().optional(),
+      },
+      async ({ apiKey: paramKey }: { apiKey?: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).listDomains())
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("list receiving domains", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "create_receiving_domain",
+      "Create a new receiving (inbound email) domain. Optionally provide a slug; one is generated if omitted.",
+      {
+        apiKey: z.string().optional(),
+        slug: z.string().optional().describe("Domain slug (generated if omitted)"),
+      },
+      async ({ apiKey: paramKey, slug }: { apiKey?: string; slug?: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).createDomain(slug))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("create receiving domain", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_receiving_domain",
+      "Get details of a specific receiving (inbound email) domain by ID.",
+      {
+        apiKey: z.string().optional(),
+        id: z.string().min(1, "Domain ID is required"),
+      },
+      async ({ apiKey: paramKey, id }: { apiKey?: string; id: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).getDomain(id))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("get receiving domain", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "delete_receiving_domain",
+      "Delete a receiving (inbound email) domain by ID.",
+      {
+        apiKey: z.string().optional(),
+        id: z.string().min(1, "Domain ID is required"),
+      },
+      async ({ apiKey: paramKey, id }: { apiKey?: string; id: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          await createReceivingClient({ apiKey }).deleteDomain(id)
+          return { content: [{ type: "text", text: "Receiving domain deleted." }] }
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("delete receiving domain", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_receiving_mailboxes",
+      "List mailboxes under a receiving (inbound email) domain.",
+      {
+        apiKey: z.string().optional(),
+        domainId: z.string().min(1, "Domain ID is required"),
+      },
+      async ({ apiKey: paramKey, domainId }: { apiKey?: string; domainId: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).listMailboxes(domainId))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("list receiving mailboxes", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "create_receiving_mailbox",
+      "Create a mailbox under a receiving (inbound email) domain.",
+      {
+        apiKey: z.string().optional(),
+        domainId: z.string().min(1, "Domain ID is required"),
+        name: z.string().min(1, "Mailbox name is required"),
+        password: z.string().min(1, "Password is required"),
+        quota_bytes: z.number().int().positive().optional().describe("Mailbox quota in bytes"),
+      },
+      async ({ apiKey: paramKey, domainId, name, password, quota_bytes }: {
+        apiKey?: string;
+        domainId: string;
+        name: string;
+        password: string;
+        quota_bytes?: number;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).createMailbox(domainId, { name, password, quota_bytes }))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("create receiving mailbox", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_receiving_mailbox",
+      "Get details of a specific mailbox under a receiving (inbound email) domain.",
+      {
+        apiKey: z.string().optional(),
+        domainId: z.string().min(1, "Domain ID is required"),
+        mailboxId: z.string().min(1, "Mailbox ID is required"),
+      },
+      async ({ apiKey: paramKey, domainId, mailboxId }: {
+        apiKey?: string;
+        domainId: string;
+        mailboxId: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).getMailbox(domainId, mailboxId))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("get receiving mailbox", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "delete_receiving_mailbox",
+      "Delete a mailbox under a receiving (inbound email) domain.",
+      {
+        apiKey: z.string().optional(),
+        domainId: z.string().min(1, "Domain ID is required"),
+        mailboxId: z.string().min(1, "Mailbox ID is required"),
+      },
+      async ({ apiKey: paramKey, domainId, mailboxId }: {
+        apiKey?: string;
+        domainId: string;
+        mailboxId: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          await createReceivingClient({ apiKey }).deleteMailbox(domainId, mailboxId)
+          return { content: [{ type: "text", text: "Receiving mailbox deleted." }] }
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("delete receiving mailbox", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "list_received_emails",
+      "List received (inbound) emails. Supports cursor-based pagination with limit, after, and before parameters.",
+      {
+        apiKey: z.string().optional(),
+        limit: z.number().int().positive().optional().describe("Maximum number of results to return"),
+        after: z.string().optional().describe("Cursor for forward pagination"),
+        before: z.string().optional().describe("Cursor for backward pagination"),
+      },
+      async ({ apiKey: paramKey, limit, after, before }: {
+        apiKey?: string;
+        limit?: number;
+        after?: string;
+        before?: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).listReceivedEmails({ limit, after, before }))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("list received emails", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_received_email",
+      "Get details of a specific received (inbound) email by ID.",
+      {
+        apiKey: z.string().optional(),
+        emailId: z.string().min(1, "Email ID is required"),
+      },
+      async ({ apiKey: paramKey, emailId }: { apiKey?: string; emailId: string }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).getReceivedEmail(emailId))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("get received email", error) }] }
+        }
+      }
+    )
+
+    server.tool(
+      "get_received_email_attachment",
+      "Download an attachment from a received (inbound) email.",
+      {
+        apiKey: z.string().optional(),
+        emailId: z.string().min(1, "Email ID is required"),
+        blobId: z.string().min(1, "Blob ID is required"),
+      },
+      async ({ apiKey: paramKey, emailId, blobId }: {
+        apiKey?: string;
+        emailId: string;
+        blobId: string;
+      }) => {
+        try {
+          const { apiKey } = resolveCredentials({ apiKey: paramKey })
+          if (!apiKey) {
+            return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
+          }
+          return jsonText(await createReceivingClient({ apiKey }).getReceivedEmailAttachment(emailId, blobId))
+        } catch (error) {
+          return { content: [{ type: "text", text: receivingFailureText("get received email attachment", error) }] }
         }
       }
     )

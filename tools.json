@@ -32,5 +32,16 @@
   "list_campaign_sends",
   "list_campaign_deliveries",
   "get_campaign_analytics",
-  "get_marketing_bulk_job"
+  "get_marketing_bulk_job",
+  "list_receiving_domains",
+  "create_receiving_domain",
+  "get_receiving_domain",
+  "delete_receiving_domain",
+  "list_receiving_mailboxes",
+  "create_receiving_mailbox",
+  "get_receiving_mailbox",
+  "delete_receiving_mailbox",
+  "list_received_emails",
+  "get_received_email",
+  "get_received_email_attachment"
 ]
