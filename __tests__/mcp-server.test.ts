@@ -145,6 +145,38 @@ describe('Paubox MCP Server', () => {
         }
       });
 
+      it('should register the receiving (inbound email) tools', async () => {
+        const res = await request(testServer.baseUrl)
+          .post('/mcp')
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'application/json, text/event-stream')
+          .set(TEST_AUTH_HEADERS)
+          .send({
+            jsonrpc: '2.0',
+            id: 103,
+            method: 'tools/list'
+          });
+
+        expect(res.statusCode).toBe(200);
+        const data = parseSse(res.text);
+        const toolNames = data.result.tools.map((tool: { name: string }) => tool.name);
+        for (const name of [
+          'list_receiving_domains',
+          'create_receiving_domain',
+          'get_receiving_domain',
+          'delete_receiving_domain',
+          'list_receiving_mailboxes',
+          'create_receiving_mailbox',
+          'get_receiving_mailbox',
+          'delete_receiving_mailbox',
+          'list_received_emails',
+          'get_received_email',
+          'get_received_email_attachment',
+        ]) {
+          expect(toolNames).toContain(name);
+        }
+      });
+
       it('should not expose campaign sending or bulk deletion tools', async () => {
         // This tranche is read-only plus safe subscriber/list writes. Sending
         // and deleting mail or destroy whole lists and need their own
