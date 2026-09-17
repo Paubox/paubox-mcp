@@ -43,5 +43,10 @@
   "delete_receiving_mailbox",
   "list_received_emails",
   "get_received_email",
-  "get_received_email_attachment"
+  "get_received_email_attachment",
+  "list_webhook_endpoints",
+  "create_webhook_endpoint",
+  "get_webhook_endpoint",
+  "update_webhook_endpoint",
+  "delete_webhook_endpoint"
 ]
