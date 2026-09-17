@@ -2410,6 +2410,212 @@ server.tool(
   }
 )
 
+// ---------------------------------------------------------------------------
+// Paubox Webhook Endpoint tools
+//
+// These call the Webhook Endpoints API at api.paubox.com/v1/email/webhook_endpoints,
+// which uses the same API key as the email tools. The client is inlined here
+// for the same reason as the other clients: the stdio build cannot import
+// from lib/.
+// ---------------------------------------------------------------------------
+
+const VALID_WEBHOOK_EVENTS = [
+  "api_mail_log_delivered",
+  "api_mail_log_opened",
+  "api_mail_log_temporary_failure",
+  "api_mail_log_permanent_failure",
+  "inbound_mail_received",
+] as const
+
+async function webhookRequest(
+  path: string,
+  options: {
+    method?: string
+    body?: unknown
+  } = {}
+): Promise<unknown> {
+  const response = await fetch(`${EMAIL_API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey!.trim()}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  let raw = ""
+  try {
+    raw = await response.text()
+  } catch {
+    // ignore unreadable bodies
+  }
+  if (!response.ok) {
+    const detail = raw ? raw.slice(0, 300) : ""
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `Paubox Webhook API rejected the API key (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
+      )
+    }
+    throw new Error(
+      `Paubox Webhook API error (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
+    )
+  }
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function webhookJson(payload: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+}
+
+function webhookFailure(action: string, error: unknown) {
+  return { content: [{ type: "text" as const, text: `Failed to ${action}: ${errorText(error)}` }] }
+}
+
+server.tool(
+  "list_webhook_endpoints",
+  "List webhook endpoints configured for this Paubox account.",
+  {},
+  async () => {
+    try {
+      return webhookJson(await webhookRequest("/webhook_endpoints"))
+    } catch (error) {
+      return webhookFailure("list webhook endpoints", error)
+    }
+  }
+)
+
+server.tool(
+  "create_webhook_endpoint",
+  "Create a webhook endpoint to receive event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure, inbound_mail_received.",
+  {
+    target_url: z.string().url("Must be a valid URL"),
+    events: z
+      .array(z.enum(VALID_WEBHOOK_EVENTS))
+      .min(1, "At least one event is required"),
+    signing_key: z.string().optional().describe("Signing key for webhook payload verification"),
+    active: z.boolean().optional().describe("Whether the endpoint is active (default true)"),
+  },
+  async ({
+    target_url,
+    events,
+    signing_key,
+    active,
+  }: {
+    target_url: string
+    events: string[]
+    signing_key?: string
+    active?: boolean
+  }) => {
+    try {
+      const body: Record<string, unknown> = { target_url, events }
+      if (signing_key !== undefined) body.signing_key = signing_key
+      if (active !== undefined) body.active = active
+      const result = await webhookRequest("/webhook_endpoints", { method: "POST", body })
+      const data = (result as Record<string, unknown>).data as Record<string, unknown> | undefined
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Webhook endpoint created\n\nID: ${data?.id}\nTarget URL: ${target_url}\nEvents: ${events.join(", ")}\n\n${JSON.stringify(result, null, 2)}`,
+          },
+        ],
+      }
+    } catch (error) {
+      return webhookFailure("create webhook endpoint", error)
+    }
+  }
+)
+
+server.tool(
+  "get_webhook_endpoint",
+  "Get details of a specific webhook endpoint by ID.",
+  {
+    endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+  },
+  async ({ endpoint_id }: { endpoint_id: number }) => {
+    try {
+      return webhookJson(
+        await webhookRequest(`/webhook_endpoints/${encodeURIComponent(endpoint_id)}`)
+      )
+    } catch (error) {
+      return webhookFailure("get webhook endpoint", error)
+    }
+  }
+)
+
+server.tool(
+  "update_webhook_endpoint",
+  "Update an existing webhook endpoint. Only the provided fields are changed.",
+  {
+    endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+    target_url: z.string().url().optional().describe("New target URL"),
+    events: z
+      .array(z.enum(VALID_WEBHOOK_EVENTS))
+      .optional()
+      .describe("New set of events"),
+    active: z.boolean().optional().describe("Whether the endpoint is active"),
+  },
+  async ({
+    endpoint_id,
+    target_url,
+    events,
+    active,
+  }: {
+    endpoint_id: number
+    target_url?: string
+    events?: string[]
+    active?: boolean
+  }) => {
+    try {
+      const body: Record<string, unknown> = {}
+      if (target_url !== undefined) body.target_url = target_url
+      if (events !== undefined) body.events = events
+      if (active !== undefined) body.active = active
+      if (Object.keys(body).length === 0) {
+        throw new Error("Provide at least one field to update")
+      }
+      const result = await webhookRequest(
+        `/webhook_endpoints/${encodeURIComponent(endpoint_id)}`,
+        { method: "PATCH", body }
+      )
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Webhook endpoint ${endpoint_id} updated.\n\n${JSON.stringify(result, null, 2)}`,
+          },
+        ],
+      }
+    } catch (error) {
+      return webhookFailure("update webhook endpoint", error)
+    }
+  }
+)
+
+server.tool(
+  "delete_webhook_endpoint",
+  "Delete a webhook endpoint by ID.",
+  {
+    endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+  },
+  async ({ endpoint_id }: { endpoint_id: number }) => {
+    try {
+      await webhookRequest(
+        `/webhook_endpoints/${encodeURIComponent(endpoint_id)}`,
+        { method: "DELETE" }
+      )
+      return { content: [{ type: "text" as const, text: `Webhook endpoint ${endpoint_id} deleted.` }] }
+    } catch (error) {
+      return webhookFailure("delete webhook endpoint", error)
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
