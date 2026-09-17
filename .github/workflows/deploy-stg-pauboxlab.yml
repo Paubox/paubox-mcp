@@ -1,0 +1,84 @@
+# Additive deploy to the new self-contained staging account (195071949090).
+# Does NOT touch deploy-staging.yml / deploy-prod.yml / deploy-hotfix.yml, so existing
+# deploys are unaffected. OIDC (no static keys); dispatch-only. Builds the Next.js
+# standalone image from the self-contained public Dockerfile (no build args) and deploys
+# webapp-service on the pb-mcp-staging cluster. Terraform for the service lives in
+# Paubox/terraform-staging/paubox_mcp.
+name: Deploy to staging-pauboxlab (195071949090)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 195071949090.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: pb-mcp-staging
+  ECS_CLUSTER: pb-mcp-staging
+  DEPLOY_ROLE: arn:aws:iam::195071949090:role/pb-mcp-staging-gha-deploy
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: staging-pauboxlab
+    outputs:
+      sha: ${{ steps.git-sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - id: git-sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Skip build if image exists (immutable ECR)
+        id: exists
+        run: |
+          if [ "$(aws ecr batch-get-image --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="${{ steps.git-sha.outputs.sha }}" --query 'length(images)' --output text 2>/dev/null)" = "1" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and push image
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.git-sha.outputs.sha }}
+          cache-from: type=gha,scope=pb-mcp-stg-pauboxlab
+          cache-to: type=gha,mode=max,scope=pb-mcp-stg-pauboxlab
+
+  deploy-webapp:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging-pauboxlab
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Render webapp task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef/staging-pauboxlab.json
+          container-name: nextjs-app
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-push.outputs.sha }}
+      - name: Deploy webapp
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: webapp-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

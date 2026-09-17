@@ -1,0 +1,43 @@
+{
+  "family": "pb-mcp-staging-webapp-task",
+  "taskRoleArn": "arn:aws:iam::195071949090:role/pb-mcp-staging-task-role",
+  "executionRoleArn": "arn:aws:iam::195071949090:role/pb-mcp-staging-execution-role",
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "requiresCompatibilities": ["FARGATE"],
+  "containerDefinitions": [
+    {
+      "name": "nextjs-app",
+      "image": "PLACEHOLDER",
+      "cpu": 256,
+      "memory": 512,
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 3000, "name": "webapp" }
+      ],
+      "environment": [
+        { "name": "PORT", "value": "3000" },
+        { "name": "NODE_ENV", "value": "production" }
+      ],
+      "secrets": [
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:ssm:us-west-2:195071949090:parameter/staging/pb-mcp/JWT_SECRET" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/pb-mcp-staging-webapp",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://$(hostname -i):3000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
