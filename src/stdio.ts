@@ -198,7 +198,7 @@ async function cancelScheduledMessage(sourceTrackingId: string): Promise<unknown
 
 // Reported to clients in the initialize handshake. Kept in step with
 // package.json by release-please; see release-please-config.json extra-files.
-const server = new McpServer({ name: "paubox", version: "1.1.0" }) // x-release-please-version
+const server = new McpServer({ name: "paubox", version: "1.2.0" }) // x-release-please-version
 
 server.tool(
   "validate_credentials",

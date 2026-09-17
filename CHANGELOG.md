@@ -6,6 +6,13 @@ This changelog tracks the **`@paubox/mcp` npm package** — the stdio server tha
 AI clients spawn locally. The hosted server at `https://mcp.paubox.com/mcp` is
 deployed independently from `main` and is not versioned here.
 
+## [1.2.0](https://github.com/Paubox/paubox-mcp/compare/v1.1.0...v1.2.0) (2026-09-17)
+
+
+### Features
+
+* webhook endpoint management tools ([#75](https://github.com/Paubox/paubox-mcp/issues/75)) ([960083d](https://github.com/Paubox/paubox-mcp/commit/960083d5176cacbedf7147b0b758aee25c883962))
+
 ## [1.1.0](https://github.com/Paubox/paubox-mcp/compare/v1.0.3...v1.1.0) (2026-09-16)
 
 
