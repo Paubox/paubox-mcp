@@ -2119,14 +2119,16 @@ server.tool(
 // lib/.
 // ---------------------------------------------------------------------------
 
-async function receivingRequest(
+type ReceivingRequestOptions = {
+  method?: string
+  query?: Record<string, string | number | undefined>
+  body?: unknown
+}
+
+async function receivingFetch(
   path: string,
-  options: {
-    method?: string
-    query?: Record<string, string | number | undefined>
-    body?: unknown
-  } = {}
-): Promise<unknown> {
+  options: ReceivingRequestOptions = {}
+): Promise<Response> {
   const url = new URL(`${EMAIL_API_BASE_URL}${path}`)
   if (options.query) {
     for (const [key, value] of Object.entries(options.query)) {
@@ -2142,13 +2144,13 @@ async function receivingRequest(
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
-  let raw = ""
-  try {
-    raw = await response.text()
-  } catch {
-    // ignore unreadable bodies
-  }
   if (!response.ok) {
+    let raw = ""
+    try {
+      raw = await response.text()
+    } catch {
+      // ignore unreadable bodies
+    }
     const detail = raw ? raw.slice(0, 300) : ""
     if (response.status === 401 || response.status === 403) {
       throw new Error(
@@ -2159,12 +2161,44 @@ async function receivingRequest(
       `Paubox Receiving API error (HTTP ${response.status})${detail ? `: ${detail}` : ""}`
     )
   }
+  return response
+}
+
+async function receivingRequest(
+  path: string,
+  options: ReceivingRequestOptions = {}
+): Promise<unknown> {
+  const response = await receivingFetch(path, options)
+  let raw = ""
+  try {
+    raw = await response.text()
+  } catch {
+    // ignore unreadable bodies
+  }
   if (!raw) return {}
   try {
     return JSON.parse(raw)
   } catch {
     return raw
   }
+}
+
+function decodeExtendedValue(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const extended = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(header)
+  const decoded = extended ? decodeExtendedValue(extended[1].trim()) : null
+  if (decoded) return decoded
+  const plain = /filename\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;\s]+))/i.exec(header)
+  if (!plain) return null
+  return plain[1] !== undefined ? plain[1].replace(/\\(.)/g, "$1") : plain[2]
 }
 
 function receivingJson(payload: unknown) {
@@ -2341,16 +2375,17 @@ server.tool(
 
 server.tool(
   "list_received_emails",
-  "List received (inbound) emails. Supports cursor-based pagination with limit, after, and before parameters.",
+  "List received (inbound) emails. Returns { object: \"list\", data, has_more }; each item is identified by email_id, a Paubox UUID. Paginate by passing an email_id from the previous page as after or before.",
   {
     limit: z
       .number()
       .int()
       .positive()
+      .max(100)
       .optional()
-      .describe("Maximum number of results to return"),
-    after: z.string().optional().describe("Cursor for forward pagination"),
-    before: z.string().optional().describe("Cursor for backward pagination"),
+      .describe("Maximum number of results to return (default 25, max 100)"),
+    after: z.string().optional().describe("email_id from a previous page; returns emails after it"),
+    before: z.string().optional().describe("email_id from a previous page; returns emails before it"),
   },
   async ({
     limit,
@@ -2375,9 +2410,9 @@ server.tool(
 
 server.tool(
   "get_received_email",
-  "Get details of a specific received (inbound) email by ID.",
+  "Get a received (inbound) email by its email_id (a Paubox UUID from list_received_emails). Returns headers, bodies, authentication results, and attachments; each attachment's id is the attachmentId for get_received_email_attachment.",
   {
-    emailId: z.string().min(1, "Email ID is required"),
+    emailId: z.string().min(1, "Email ID is required").describe("email_id (UUID) of the received email"),
   },
   async ({ emailId }: { emailId: string }) => {
     try {
@@ -2390,20 +2425,49 @@ server.tool(
   }
 )
 
+const RECEIVED_ATTACHMENT_MAX_BYTES = 1024 * 1024
+
 server.tool(
   "get_received_email_attachment",
-  "Download an attachment from a received (inbound) email.",
+  "Download an attachment from a received (inbound) email. Returns JSON with filename, content_type, size, and the file content base64-encoded in content_base64. Attachments over 1 MB are refused; fetch those from the attachment's download_url instead.",
   {
-    emailId: z.string().min(1, "Email ID is required"),
-    blobId: z.string().min(1, "Blob ID is required"),
+    emailId: z.string().min(1, "Email ID is required").describe("email_id (UUID) of the received email"),
+    attachmentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Attachment UUID: the id of an entry in get_received_email's attachments"),
+    blobId: z.string().min(1).optional().describe("Deprecated alias for attachmentId"),
   },
-  async ({ emailId, blobId }: { emailId: string; blobId: string }) => {
+  async ({
+    emailId,
+    attachmentId,
+    blobId,
+  }: {
+    emailId: string
+    attachmentId?: string
+    blobId?: string
+  }) => {
     try {
-      return receivingJson(
-        await receivingRequest(
-          `/receiving/${encodeURIComponent(emailId)}/attachments/${encodeURIComponent(blobId)}`
-        )
+      const id = attachmentId ?? blobId
+      if (!id) throw new Error("attachmentId is required")
+      const response = await receivingFetch(
+        `/receiving/${encodeURIComponent(emailId)}/attachments/${encodeURIComponent(id)}`
       )
+      const content = Buffer.from(await response.arrayBuffer())
+      if (content.byteLength > RECEIVED_ATTACHMENT_MAX_BYTES) {
+        throw new Error(
+          `the attachment is ${content.byteLength} bytes, which exceeds the ${RECEIVED_ATTACHMENT_MAX_BYTES} byte limit for tool output. Fetch it from the attachment's download_url instead.`
+        )
+      }
+      return receivingJson({
+        email_id: emailId,
+        attachment_id: id,
+        filename: filenameFromContentDisposition(response.headers.get("content-disposition")),
+        content_type: response.headers.get("content-type"),
+        size: content.byteLength,
+        content_base64: content.toString("base64"),
+      })
     } catch (error) {
       return receivingFailure("get received email attachment", error)
     }
