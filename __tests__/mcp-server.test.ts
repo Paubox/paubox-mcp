@@ -264,6 +264,25 @@ describe('Paubox MCP Server', () => {
           expect(required).not.toContain('blobId');
           expect(properties.blobId.description).toMatch(/deprecated/i);
         });
+
+        it.each(['create_webhook_endpoint', 'update_webhook_endpoint'])(
+          '%s only accepts the Email API delivery events',
+          async (name: string) => {
+            const tool = await findTool(name);
+            expect(tool.inputSchema.properties.events.items?.enum).toEqual([
+              'api_mail_log_delivered',
+              'api_mail_log_opened',
+              'api_mail_log_temporary_failure',
+              'api_mail_log_permanent_failure',
+            ]);
+          },
+        );
+
+        it('points inbound mail subscriptions at the dashboard', async () => {
+          const tool = await findTool('create_webhook_endpoint');
+          expect(tool.description).not.toContain('inbound_mail_received');
+          expect(tool.description).toMatch(/Paubox Dashboard/);
+        });
       });
 
       describe('validate_credentials tool', () => {

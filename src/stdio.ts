@@ -2488,7 +2488,6 @@ const VALID_WEBHOOK_EVENTS = [
   "api_mail_log_opened",
   "api_mail_log_temporary_failure",
   "api_mail_log_permanent_failure",
-  "inbound_mail_received",
 ] as const
 
 async function webhookRequest(
@@ -2555,7 +2554,7 @@ server.tool(
 
 server.tool(
   "create_webhook_endpoint",
-  "Create a webhook endpoint to receive event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure, inbound_mail_received.",
+  "Create a webhook endpoint to receive Email API delivery event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure. Inbound mail subscriptions (email.inbound.received) are set up in the Paubox Dashboard, not through this API.",
   {
     target_url: z.string().url("Must be a valid URL"),
     events: z
