@@ -1,26 +1,78 @@
 import {
   createReceivingClient,
+  filenameFromContentDisposition,
   PauboxReceivingError,
+  ReceivingHttpRequest,
 } from '../lib/paubox-receiving'
-import { EMAIL_API_BASE_URL, HttpRequest } from '../lib/paubox-email'
+import { EMAIL_API_BASE_URL } from '../lib/paubox-email'
 
-type HttpConfig = Parameters<HttpRequest>[0]
+type HttpConfig = Parameters<ReceivingHttpRequest>[0]
+type HttpResponse = Awaited<ReturnType<ReceivingHttpRequest>>
+
+const EMAIL_ID = '0f8e9a52-3c1d-4b7e-9a6f-2d5c8b1e4a70'
+const NEXT_EMAIL_ID = '7b2c4d6e-8f01-4a23-b456-789abcdef012'
+const ATTACHMENT_ID = '5a1b2c3d-4e5f-4061-8a7b-9c0d1e2f3a4b'
+
+const ADDRESS = { name: 'Jane Doe', address: 'jane@example.com' }
+
+const LIST_ITEM = {
+  email_id: EMAIL_ID,
+  from: [ADDRESS],
+  to: [{ name: null, address: 'intake@clinic.example' }],
+  subject: 'Lab results',
+  received_at: '2026-10-01T15:04:05Z',
+  has_attachment: true,
+  spam: false,
+  size: 48213,
+  domain: 'clinic.example',
+}
+
+const ATTACHMENT = {
+  id: ATTACHMENT_ID,
+  filename: 'results.pdf',
+  content_type: 'application/pdf',
+  size: 40960,
+  content_id: null,
+  download_url: `${EMAIL_API_BASE_URL}/receiving/${EMAIL_ID}/attachments/${ATTACHMENT_ID}`,
+}
+
+const DETAIL = {
+  email_id: EMAIL_ID,
+  from: [ADDRESS],
+  to: [{ name: null, address: 'intake@clinic.example' }],
+  cc: [],
+  subject: 'Lab results',
+  date: '2026-10-01T15:04:00Z',
+  received_at: '2026-10-01T15:04:05Z',
+  message_id: ['<abc123@example.com>'],
+  in_reply_to: null,
+  references: null,
+  spam: false,
+  spam_score: 0.4,
+  text_body: 'See attached.',
+  html_body: null,
+  attachments: [ATTACHMENT],
+  size: 48213,
+  authentication: { spf: 'pass', dkim: 'pass', dmarc: 'pass' },
+  domain: 'clinic.example',
+  headers: [{ name: 'Subject', value: 'Lab results' }],
+}
 
 function fakeHttp(
-  impl: (config: HttpConfig) => Promise<{ status: number; data: unknown }> = async () => ({
+  impl: (config: HttpConfig) => Promise<HttpResponse> = async () => ({
     status: 200,
     data: {},
   }),
 ) {
   const calls: HttpConfig[] = []
-  const fn: HttpRequest = async (config) => {
+  const fn: ReceivingHttpRequest = async (config) => {
     calls.push(config)
     return impl(config)
   }
   return { fn, calls }
 }
 
-function client(fn: HttpRequest, apiKey = 'pk_receiving_test') {
+function client(fn: ReceivingHttpRequest, apiKey = 'pk_receiving_test') {
   return createReceivingClient({ apiKey, http: fn })
 }
 
@@ -176,18 +228,18 @@ describe('deleteMailbox', () => {
 
 describe('listReceivedEmails', () => {
   it('GETs /receiving with no params by default', async () => {
-    const emails = [{ id: 'e1', subject: 'test' }]
-    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: emails }))
+    const page = { object: 'list', data: [LIST_ITEM], has_more: false }
+    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: page }))
     const result = await client(fn).listReceivedEmails()
-    expect(calls[0].url).toContain('/receiving')
+    expect(calls[0].url).toBe(`${EMAIL_API_BASE_URL}/receiving`)
     expect(calls[0].method).toBe('get')
-    expect(result).toEqual(emails)
+    expect(result).toEqual(page)
   })
 
-  it('passes limit, after, and before as query params', async () => {
+  it('passes limit and email_id cursors as query params', async () => {
     const { fn, calls } = fakeHttp()
-    await client(fn).listReceivedEmails({ limit: 10, after: 'cursor1', before: 'cursor2' })
-    expect(calls[0].params).toEqual({ limit: 10, after: 'cursor1', before: 'cursor2' })
+    await client(fn).listReceivedEmails({ limit: 10, after: EMAIL_ID, before: NEXT_EMAIL_ID })
+    expect(calls[0].params).toEqual({ limit: 10, after: EMAIL_ID, before: NEXT_EMAIL_ID })
   })
 
   it('omits undefined query params', async () => {
@@ -198,30 +250,125 @@ describe('listReceivedEmails', () => {
 })
 
 describe('getReceivedEmail', () => {
-  it('GETs /receiving/:emailId', async () => {
-    const email = { id: 'e1', subject: 'hello' }
-    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: email }))
-    const result = await client(fn).getReceivedEmail('e1')
-    expect(calls[0].url).toContain('/receiving/e1')
+  it('GETs /receiving/:emailId by Paubox UUID', async () => {
+    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: { data: DETAIL } }))
+    const result = await client(fn).getReceivedEmail(EMAIL_ID)
+    expect(calls[0].url).toBe(`${EMAIL_API_BASE_URL}/receiving/${EMAIL_ID}`)
     expect(calls[0].method).toBe('get')
-    expect(result).toEqual(email)
+    expect(result).toEqual({ data: DETAIL })
+  })
+
+  it('maps a 404 for an unknown or legacy id to a not-found error', async () => {
+    const { fn } = fakeHttp(async () => ({ status: 404, data: { message: 'email not found' } }))
+    const error = await captureError(client(fn).getReceivedEmail('12345'))
+    expect(error.status).toBe(404)
+    expect(error.message).toBe('email not found')
   })
 })
 
 describe('getReceivedEmailAttachment', () => {
-  it('GETs /receiving/:emailId/attachments/:blobId', async () => {
-    const attachment = { content: 'base64data' }
-    const { fn, calls } = fakeHttp(async () => ({ status: 200, data: attachment }))
-    const result = await client(fn).getReceivedEmailAttachment('e1', 'b1')
-    expect(calls[0].url).toContain('/receiving/e1/attachments/b1')
+  const PDF_BYTES = Buffer.from('%PDF-1.7\n\x00\xff binary body', 'latin1')
+
+  function attachmentResponse(headers: Record<string, string>): HttpResponse {
+    return { status: 200, data: PDF_BYTES, headers }
+  }
+
+  it('GETs /receiving/:emailId/attachments/:attachmentId as raw bytes', async () => {
+    const { fn, calls } = fakeHttp(async () =>
+      attachmentResponse({
+        'content-type': 'application/pdf',
+        'content-disposition': 'attachment; filename="results.pdf"',
+      }),
+    )
+    await client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID)
+    expect(calls[0].url).toBe(
+      `${EMAIL_API_BASE_URL}/receiving/${EMAIL_ID}/attachments/${ATTACHMENT_ID}`,
+    )
     expect(calls[0].method).toBe('get')
-    expect(result).toEqual(attachment)
+    expect(calls[0].responseType).toBe('arraybuffer')
+  })
+
+  it('returns the bytes with content type, filename, and size from the headers', async () => {
+    const { fn } = fakeHttp(async () =>
+      attachmentResponse({
+        'content-type': 'application/pdf',
+        'content-disposition': 'attachment; filename="results.pdf"',
+      }),
+    )
+    const result = await client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID)
+    expect(result.contentType).toBe('application/pdf')
+    expect(result.filename).toBe('results.pdf')
+    expect(result.size).toBe(PDF_BYTES.byteLength)
+    expect(result.content.equals(PDF_BYTES)).toBe(true)
+  })
+
+  it('reads headers case-insensitively', async () => {
+    const { fn } = fakeHttp(async () =>
+      attachmentResponse({
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="scan.png"',
+      }),
+    )
+    const result = await client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID)
+    expect(result.contentType).toBe('image/png')
+    expect(result.filename).toBe('scan.png')
+  })
+
+  it('returns a null filename when Content-Disposition is absent', async () => {
+    const { fn } = fakeHttp(async () => attachmentResponse({ 'content-type': 'text/plain' }))
+    const result = await client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID)
+    expect(result.filename).toBeNull()
+    expect(result.contentType).toBe('text/plain')
+  })
+
+  it('accepts an ArrayBuffer body', async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const { fn } = fakeHttp(async () => ({ status: 200, data: bytes.buffer, headers: {} }))
+    const result = await client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID)
+    expect([...result.content]).toEqual([1, 2, 3, 4])
+    expect(result.size).toBe(4)
+    expect(result.contentType).toBeNull()
   })
 
   it('URL-encodes both path segments', async () => {
-    const { fn, calls } = fakeHttp()
+    const { fn, calls } = fakeHttp(async () => attachmentResponse({}))
     await client(fn).getReceivedEmailAttachment('a/b', 'c/d')
     expect(calls[0].url).toContain('/receiving/a%2Fb/attachments/c%2Fd')
+  })
+
+  it('decodes a JSON error body delivered as bytes', async () => {
+    const { fn } = fakeHttp(async () => ({
+      status: 404,
+      data: Buffer.from(JSON.stringify({ message: 'attachment not found' })),
+    }))
+    const error = await captureError(client(fn).getReceivedEmailAttachment(EMAIL_ID, 'legacy-blob-id'))
+    expect(error.status).toBe(404)
+    expect(error.message).toBe('attachment not found')
+  })
+
+  it('surfaces a non-JSON error body delivered as bytes', async () => {
+    const { fn } = fakeHttp(async () => ({ status: 502, data: Buffer.from('Bad Gateway') }))
+    const error = await captureError(client(fn).getReceivedEmailAttachment(EMAIL_ID, ATTACHMENT_ID))
+    expect(error.status).toBe(502)
+    expect(error.message).toContain('Bad Gateway')
+  })
+})
+
+describe('filenameFromContentDisposition', () => {
+  it.each([
+    ['attachment; filename="results.pdf"', 'results.pdf'],
+    ['attachment; filename=results.pdf', 'results.pdf'],
+    ['attachment; filename="lab \\"final\\".pdf"', 'lab "final".pdf'],
+    ['attachment; filename="results.pdf"; size=40960', 'results.pdf'],
+    ["attachment; filename*=UTF-8''R%C3%A9sultats.pdf", 'Résultats.pdf'],
+    ["attachment; filename=\"fallback.pdf\"; filename*=UTF-8''R%C3%A9sultats.pdf", 'Résultats.pdf'],
+    ["attachment; filename*=UTF-8''%E0%A4%A; filename=\"fallback.pdf\"", 'fallback.pdf'],
+  ])('parses %s', (header: string, expected: string) => {
+    expect(filenameFromContentDisposition(header)).toBe(expected)
+  })
+
+  it.each([undefined, null, '', 'attachment', 'inline'])('returns null for %p', (header: string | null | undefined) => {
+    expect(filenameFromContentDisposition(header)).toBeNull()
   })
 })
 

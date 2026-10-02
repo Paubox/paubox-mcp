@@ -229,6 +229,62 @@ describe('Paubox MCP Server', () => {
         }
       });
 
+      describe('receiving and webhook tool schemas', () => {
+        type ToolSchema = {
+          name: string;
+          description?: string;
+          inputSchema: {
+            properties: Record<string, { description?: string; items?: { enum?: string[] } }>;
+            required?: string[];
+          };
+        };
+
+        async function findTool(name: string): Promise<ToolSchema> {
+          const res = await request(testServer.baseUrl)
+            .post('/mcp')
+            .set('Content-Type', 'application/json')
+            .set('Accept', 'application/json, text/event-stream')
+            .set(TEST_AUTH_HEADERS)
+            .send({ jsonrpc: '2.0', id: 104, method: 'tools/list' });
+          expect(res.statusCode).toBe(200);
+          const tools: ToolSchema[] = parseSse(res.text).result.tools;
+          const tool = tools.find((candidate) => candidate.name === name);
+          if (!tool) throw new Error(`tool ${name} is not registered`);
+          return tool;
+        }
+
+        it('identifies attachments by attachmentId and keeps blobId as an optional deprecated alias', async () => {
+          const tool = await findTool('get_received_email_attachment');
+          const { properties, required = [] } = tool.inputSchema;
+          expect(Object.keys(properties)).toEqual(
+            expect.arrayContaining(['emailId', 'attachmentId', 'blobId']),
+          );
+          expect(required).toContain('emailId');
+          expect(required).not.toContain('attachmentId');
+          expect(required).not.toContain('blobId');
+          expect(properties.blobId.description).toMatch(/deprecated/i);
+        });
+
+        it.each(['create_webhook_endpoint', 'update_webhook_endpoint'])(
+          '%s only accepts the Email API delivery events',
+          async (name: string) => {
+            const tool = await findTool(name);
+            expect(tool.inputSchema.properties.events.items?.enum).toEqual([
+              'api_mail_log_delivered',
+              'api_mail_log_opened',
+              'api_mail_log_temporary_failure',
+              'api_mail_log_permanent_failure',
+            ]);
+          },
+        );
+
+        it('points inbound mail subscriptions at the dashboard', async () => {
+          const tool = await findTool('create_webhook_endpoint');
+          expect(tool.description).not.toContain('inbound_mail_received');
+          expect(tool.description).toMatch(/Paubox Dashboard/);
+        });
+      });
+
       describe('validate_credentials tool', () => {
         it('should validate credentials successfully with valid input', async () => {
           const res = await request(testServer.baseUrl)

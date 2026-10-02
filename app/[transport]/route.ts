@@ -1654,12 +1654,12 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "list_received_emails",
-      "List received (inbound) emails. Supports cursor-based pagination with limit, after, and before parameters.",
+      "List received (inbound) emails. Returns { object: \"list\", data, has_more }; each item is identified by email_id, a Paubox UUID. Paginate by passing an email_id from the previous page as after or before.",
       {
         apiKey: z.string().optional(),
-        limit: z.number().int().positive().optional().describe("Maximum number of results to return"),
-        after: z.string().optional().describe("Cursor for forward pagination"),
-        before: z.string().optional().describe("Cursor for backward pagination"),
+        limit: z.number().int().positive().max(100).optional().describe("Maximum number of results to return (default 25, max 100)"),
+        after: z.string().optional().describe("email_id from a previous page; returns emails after it"),
+        before: z.string().optional().describe("email_id from a previous page; returns emails before it"),
       },
       async ({ apiKey: paramKey, limit, after, before }: {
         apiKey?: string;
@@ -1681,10 +1681,10 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "get_received_email",
-      "Get details of a specific received (inbound) email by ID.",
+      "Get a received (inbound) email by its email_id (a Paubox UUID from list_received_emails). Returns headers, bodies, authentication results, and attachments; each attachment's id is the attachmentId for get_received_email_attachment.",
       {
         apiKey: z.string().optional(),
-        emailId: z.string().min(1, "Email ID is required"),
+        emailId: z.string().min(1, "Email ID is required").describe("email_id (UUID) of the received email"),
       },
       async ({ apiKey: paramKey, emailId }: { apiKey?: string; emailId: string }) => {
         try {
@@ -1699,25 +1699,51 @@ const mcpHandler = createMcpHandler(
       }
     )
 
+    const RECEIVED_ATTACHMENT_MAX_BYTES = 1024 * 1024
+
     server.tool(
       "get_received_email_attachment",
-      "Download an attachment from a received (inbound) email.",
+      "Download an attachment from a received (inbound) email. Returns JSON with filename, content_type, size, and the file content base64-encoded in content_base64. Attachments over 1 MB are refused; fetch those from the attachment's download_url instead.",
       {
         apiKey: z.string().optional(),
-        emailId: z.string().min(1, "Email ID is required"),
-        blobId: z.string().min(1, "Blob ID is required"),
+        emailId: z.string().min(1, "Email ID is required").describe("email_id (UUID) of the received email"),
+        attachmentId: z.string().min(1).optional().describe("Attachment UUID: the id of an entry in get_received_email's attachments"),
+        blobId: z.string().min(1).optional().describe("Deprecated alias for attachmentId"),
       },
-      async ({ apiKey: paramKey, emailId, blobId }: {
+      async ({ apiKey: paramKey, emailId, attachmentId, blobId }: {
         apiKey?: string;
         emailId: string;
-        blobId: string;
+        attachmentId?: string;
+        blobId?: string;
       }) => {
         try {
+          const id = attachmentId ?? blobId
+          if (!id) {
+            return { content: [{ type: "text", text: "Failed to get received email attachment: attachmentId is required" }] }
+          }
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
             return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
           }
-          return jsonText(await createReceivingClient({ apiKey }).getReceivedEmailAttachment(emailId, blobId))
+          const attachment = await createReceivingClient({ apiKey }).getReceivedEmailAttachment(emailId, id)
+          if (attachment.size > RECEIVED_ATTACHMENT_MAX_BYTES) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Failed to get received email attachment: the attachment is ${attachment.size} bytes, which exceeds the ${RECEIVED_ATTACHMENT_MAX_BYTES} byte limit for tool output. Fetch it from the attachment's download_url instead.`,
+                },
+              ],
+            }
+          }
+          return jsonText({
+            email_id: emailId,
+            attachment_id: id,
+            filename: attachment.filename,
+            content_type: attachment.contentType,
+            size: attachment.size,
+            content_base64: attachment.content.toString('base64'),
+          })
         } catch (error) {
           return { content: [{ type: "text", text: receivingFailureText("get received email attachment", error) }] }
         }
@@ -1729,7 +1755,6 @@ const mcpHandler = createMcpHandler(
       "api_mail_log_opened",
       "api_mail_log_temporary_failure",
       "api_mail_log_permanent_failure",
-      "inbound_mail_received",
     ] as const
 
     const webhookFailureText = (action: string, error: unknown) =>
@@ -1756,7 +1781,7 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "create_webhook_endpoint",
-      "Create a webhook endpoint to receive event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure, inbound_mail_received.",
+      "Create a webhook endpoint to receive Email API delivery event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure. Inbound mail subscriptions (email.inbound.received) are set up in the Paubox Dashboard, not through this API.",
       {
         apiKey: z.string().optional(),
         target_url: z.string().url("Must be a valid URL"),
