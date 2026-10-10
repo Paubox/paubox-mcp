@@ -8,7 +8,7 @@ export const PAUBOX_PROXY_CONFIG = {
 }
 
 // Configure axios interceptors to proxy Paubox requests
-export const configurePauboxProxy = () => {
+const configurePauboxProxy = () => {
   // Only configure if proxy is enabled
   if (!PAUBOX_PROXY_CONFIG.enabled) {
     return
