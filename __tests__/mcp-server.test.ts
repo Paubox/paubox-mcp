@@ -234,7 +234,7 @@ describe('Paubox MCP Server', () => {
           name: string;
           description?: string;
           inputSchema: {
-            properties: Record<string, { description?: string; items?: { enum?: string[] } }>;
+            properties: Record<string, { description?: string; type?: string; items?: { enum?: string[] } }>;
             required?: string[];
           };
         };
@@ -266,22 +266,62 @@ describe('Paubox MCP Server', () => {
         });
 
         it.each(['create_webhook_endpoint', 'update_webhook_endpoint'])(
-          '%s only accepts the Email API delivery events',
+          '%s offers every event the webhooks service catalogues',
           async (name: string) => {
             const tool = await findTool(name);
+            // The four Email API events keep their legacy api_mail_log_ names
+            // so receivers written against the retired webhooks keep working.
             expect(tool.inputSchema.properties.events.items?.enum).toEqual([
+              'forms.submission.created',
               'api_mail_log_delivered',
               'api_mail_log_opened',
               'api_mail_log_temporary_failure',
               'api_mail_log_permanent_failure',
+              'email.inbound.received',
             ]);
           },
         );
 
-        it('points inbound mail subscriptions at the dashboard', async () => {
+        // Inbound used to be dashboard-only. Since the 2026-10-14 cutover it is
+        // subscribable through the API, subject to the key's scopes.
+        it('no longer sends inbound mail subscriptions to the dashboard', async () => {
           const tool = await findTool('create_webhook_endpoint');
-          expect(tool.description).not.toContain('inbound_mail_received');
-          expect(tool.description).toMatch(/Paubox Dashboard/);
+          expect(tool.description).not.toMatch(/Paubox Dashboard/);
+          expect(tool.inputSchema.properties.events.items?.enum).toContain(
+            'email.inbound.received',
+          );
+        });
+
+        // The secret is disclosed once, at creation. If the description does not
+        // say so, a model has no reason to retain it and it is unrecoverable.
+        it('tells the caller the signing secret is shown only once', async () => {
+          const tool = await findTool('create_webhook_endpoint');
+          expect(tool.description).toMatch(/signing_secret/);
+          expect(tool.description).toMatch(/ONLY here|only here|cannot be read back/);
+        });
+
+        // Endpoint ids became UUIDs at the cutover; an integer schema would make
+        // every call fail validation before it left the model.
+        it.each([
+          'get_webhook_endpoint',
+          'update_webhook_endpoint',
+          'delete_webhook_endpoint',
+        ])('%s takes a UUID string rather than an integer id', async (name: string) => {
+          const tool = await findTool(name);
+          const prop = tool.inputSchema.properties.endpoint_id as { type?: string };
+          expect(prop.type).toBe('string');
+        });
+
+        it('update_webhook_endpoint exposes status rather than active', async () => {
+          const tool = await findTool('update_webhook_endpoint');
+          const properties = tool.inputSchema.properties;
+          expect(Object.keys(properties)).toContain('status');
+          expect(Object.keys(properties)).not.toContain('active');
+        });
+
+        it('create_webhook_endpoint no longer accepts a caller-supplied signing key', async () => {
+          const tool = await findTool('create_webhook_endpoint');
+          expect(Object.keys(tool.inputSchema.properties)).not.toContain('signing_key');
         });
       });
 

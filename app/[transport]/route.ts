@@ -20,7 +20,7 @@ import {
   createMarketingClient,
 } from '../../lib/paubox-marketing'
 import { createReceivingClient } from '../../lib/paubox-receiving'
-import { createWebhookClient } from '../../lib/paubox-webhooks'
+import { createWebhookClient, WEBHOOK_EVENTS } from '../../lib/paubox-webhooks'
 
 type RequestCredentials = {
   apiKey?: string
@@ -1750,29 +1750,24 @@ const mcpHandler = createMcpHandler(
       }
     )
 
-    const VALID_WEBHOOK_EVENTS = [
-      "api_mail_log_delivered",
-      "api_mail_log_opened",
-      "api_mail_log_temporary_failure",
-      "api_mail_log_permanent_failure",
-    ] as const
-
     const webhookFailureText = (action: string, error: unknown) =>
       `Failed to ${action}: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
 
     server.tool(
       "list_webhook_endpoints",
-      "List webhook endpoints configured for this Paubox account.",
+      "List the webhook endpoints this API key can act on. Endpoints carrying an event the key is not scoped for are filtered out by the service. Returns 'data' plus 'page_info', where page_info.count is the total matching, not the length of this page.",
       {
         apiKey: z.string().optional(),
+        page: z.number().int().positive().optional().describe("1-based page number"),
+        items: z.number().int().positive().optional().describe("Page size"),
       },
-      async ({ apiKey: paramKey }: { apiKey?: string }) => {
+      async ({ apiKey: paramKey, page, items }: { apiKey?: string; page?: number; items?: number }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
             return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
           }
-          return jsonText(await createWebhookClient({ apiKey }).listWebhookEndpoints())
+          return jsonText(await createWebhookClient({ apiKey }).listWebhookEndpoints({ page, items }))
         } catch (error) {
           return { content: [{ type: "text", text: webhookFailureText("list webhook endpoints", error) }] }
         }
@@ -1781,38 +1776,35 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "create_webhook_endpoint",
-      "Create a webhook endpoint to receive Email API delivery event notifications. Valid events: api_mail_log_delivered, api_mail_log_opened, api_mail_log_temporary_failure, api_mail_log_permanent_failure. Inbound mail subscriptions (email.inbound.received) are set up in the Paubox Dashboard, not through this API.",
+      "Subscribe a URL to Paubox events. Which events a key may subscribe to follows from its scopes: an event the key is not scoped for is refused with 403, an unrecognised one with 422. The response carries signing_secret, which Paubox returns ONLY here \u2014 store it when you receive it, because it cannot be read back and a lost secret means replacing the endpoint.",
       {
         apiKey: z.string().optional(),
         target_url: z.string().url("Must be a valid URL"),
-        events: z.array(z.enum(VALID_WEBHOOK_EVENTS)).min(1, "At least one event is required"),
-        signing_key: z.string().optional().describe("Signing key for webhook payload verification"),
-        active: z.boolean().optional().describe("Whether the endpoint is active (default true)"),
+        events: z.array(z.enum(WEBHOOK_EVENTS)).min(1, "At least one event is required"),
       },
       async ({
         apiKey: paramKey,
         target_url,
         events,
-        signing_key,
-        active,
       }: {
         apiKey?: string
         target_url: string
         events: string[]
-        signing_key?: string
-        active?: boolean
       }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
             return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
           }
-          return jsonText(await createWebhookClient({ apiKey }).createWebhookEndpoint({
-            target_url,
-            events,
-            signing_key,
-            active,
-          }))
+          const endpoint = await createWebhookClient({ apiKey }).createWebhookEndpoint({ target_url, events })
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Webhook endpoint created\n\nID: ${endpoint.id}\nTarget URL: ${endpoint.target_url}\nStatus: ${endpoint.status}\nEvents: ${endpoint.events?.join(", ")}\n\nSigning secret (shown once, store it now): ${endpoint.signing_secret}\n\n${JSON.stringify(endpoint, null, 2)}`,
+              },
+            ],
+          }
         } catch (error) {
           return { content: [{ type: "text", text: webhookFailureText("create webhook endpoint", error) }] }
         }
@@ -1821,12 +1813,12 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "get_webhook_endpoint",
-      "Get details of a specific webhook endpoint by ID.",
+      "Get a webhook endpoint by its UUID. The response does not include the signing secret.",
       {
         apiKey: z.string().optional(),
-        endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+        endpoint_id: z.string().describe("Endpoint UUID"),
       },
-      async ({ apiKey: paramKey, endpoint_id }: { apiKey?: string; endpoint_id: number }) => {
+      async ({ apiKey: paramKey, endpoint_id }: { apiKey?: string; endpoint_id: string }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
@@ -1841,40 +1833,40 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "update_webhook_endpoint",
-      "Update an existing webhook endpoint. Only the provided fields are changed.",
+      "Update a webhook endpoint. Only the provided fields are changed. Use status 'disabled' to pause deliveries without losing the subscription, and 'active' to resume. Supplying events replaces the list rather than adding to it.",
       {
         apiKey: z.string().optional(),
-        endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+        endpoint_id: z.string().describe("Endpoint UUID"),
         target_url: z.string().url().optional().describe("New target URL"),
-        events: z.array(z.enum(VALID_WEBHOOK_EVENTS)).optional().describe("New set of events"),
-        active: z.boolean().optional().describe("Whether the endpoint is active"),
+        events: z.array(z.enum(WEBHOOK_EVENTS)).optional().describe("Replacement set of events"),
+        status: z.enum(["active", "disabled"]).optional().describe("Whether Paubox delivers to this endpoint"),
       },
       async ({
         apiKey: paramKey,
         endpoint_id,
         target_url,
         events,
-        active,
+        status,
       }: {
         apiKey?: string
-        endpoint_id: number
+        endpoint_id: string
         target_url?: string
         events?: string[]
-        active?: boolean
+        status?: string
       }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
             return { content: [{ type: "text", text: MISSING_CREDENTIALS_ERROR }] }
           }
-          const changes: Record<string, unknown> = {}
+          const changes: { target_url?: string; events?: string[]; status?: string } = {}
           if (target_url !== undefined) changes.target_url = target_url
           if (events !== undefined) changes.events = events
-          if (active !== undefined) changes.active = active
+          if (status !== undefined) changes.status = status
           if (Object.keys(changes).length === 0) {
             throw new Error("Provide at least one field to update")
           }
-          return jsonText(await createWebhookClient({ apiKey }).updateWebhookEndpoint(endpoint_id, changes as { target_url?: string; events?: string[]; active?: boolean }))
+          return jsonText(await createWebhookClient({ apiKey }).updateWebhookEndpoint(endpoint_id, changes))
         } catch (error) {
           return { content: [{ type: "text", text: webhookFailureText("update webhook endpoint", error) }] }
         }
@@ -1883,12 +1875,12 @@ const mcpHandler = createMcpHandler(
 
     server.tool(
       "delete_webhook_endpoint",
-      "Delete a webhook endpoint by ID.",
+      "Delete a webhook endpoint by its UUID. This stops every event on that endpoint and discards its signing secret.",
       {
         apiKey: z.string().optional(),
-        endpoint_id: z.number().int().positive("Endpoint ID must be a positive integer"),
+        endpoint_id: z.string().describe("Endpoint UUID"),
       },
-      async ({ apiKey: paramKey, endpoint_id }: { apiKey?: string; endpoint_id: number }) => {
+      async ({ apiKey: paramKey, endpoint_id }: { apiKey?: string; endpoint_id: string }) => {
         try {
           const { apiKey } = resolveCredentials({ apiKey: paramKey })
           if (!apiKey) {
