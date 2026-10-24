@@ -6,6 +6,13 @@ This changelog tracks the **`@paubox/mcp` npm package** — the stdio server tha
 AI clients spawn locally. The hosted server at `https://mcp.paubox.com/mcp` is
 deployed independently from `main` and is not versioned here.
 
+## [2.0.1](https://github.com/Paubox/paubox-mcp/compare/v2.0.0...v2.0.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **docker:** pin node 22.23.4 (CVE-2026-111497) ([#84](https://github.com/Paubox/paubox-mcp/issues/84)) ([043d672](https://github.com/Paubox/paubox-mcp/commit/043d672c60b755b7bb15bc6408c1c2d120ce91ca))
+
 ## [2.0.0](https://github.com/Paubox/paubox-mcp/compare/v1.2.1...v2.0.0) (2026-10-14)
 
 
