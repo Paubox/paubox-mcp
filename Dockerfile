@@ -1,5 +1,5 @@
-# Use Node.js 22 Alpine as base image
-FROM node:22-alpine AS base
+# Pinned: 22.23.4 fixes CVE-2026-111497 (Brotli RCE); bump deliberately
+FROM node:22.23.4-alpine AS base
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
