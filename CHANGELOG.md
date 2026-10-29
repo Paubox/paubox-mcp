@@ -6,6 +6,13 @@ This changelog tracks the **`@paubox/mcp` npm package** — the stdio server tha
 AI clients spawn locally. The hosted server at `https://mcp.paubox.com/mcp` is
 deployed independently from `main` and is not versioned here.
 
+## [2.0.2](https://github.com/Paubox/paubox-mcp/compare/v2.0.1...v2.0.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* advertise the public origin in the 401 WWW-Authenticate header ([#86](https://github.com/Paubox/paubox-mcp/issues/86)) ([f9f9e96](https://github.com/Paubox/paubox-mcp/commit/f9f9e9637a695d66749b82b878e395d2e1960d7e))
+
 ## [2.0.1](https://github.com/Paubox/paubox-mcp/compare/v2.0.0...v2.0.1) (2026-10-24)
 
 
