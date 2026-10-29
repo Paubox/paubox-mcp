@@ -604,8 +604,31 @@ describe('MCP route — Bearer token credential resolution', () => {
         .send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })
 
       expect(res.status).toBe(401)
-      expect(res.headers['www-authenticate']).toMatch(/Bearer realm="Paubox MCP"/)
-      expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/)
+      expect(res.headers['www-authenticate']).toBe(
+        `Bearer realm="Paubox MCP", resource_metadata="${testServer.baseUrl}/.well-known/oauth-protected-resource"`
+      )
+    } finally {
+      process.env.PAUBOX_API_KEY = savedKey
+    }
+  })
+
+  it('advertises the public origin in resource_metadata behind a load balancer, not the instance hostname', async () => {
+    const savedKey = process.env.PAUBOX_API_KEY
+    delete process.env.PAUBOX_API_KEY
+
+    try {
+      const res = await request(testServer.baseUrl)
+        .post('/mcp')
+        .set('Host', 'mcp.paubox.com')
+        .set('X-Forwarded-Proto', 'https')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })
+
+      expect(res.status).toBe(401)
+      expect(res.headers['www-authenticate']).toBe(
+        'Bearer realm="Paubox MCP", resource_metadata="https://mcp.paubox.com/.well-known/oauth-protected-resource"'
+      )
     } finally {
       process.env.PAUBOX_API_KEY = savedKey
     }

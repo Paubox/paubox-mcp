@@ -3,6 +3,7 @@ import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import axios from 'axios'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
+import { getPublicOrigin } from '../../lib/origin'
 import { checkPauboxCredentials } from '../../lib/paubox-credentials'
 import { sendEmail, getEmailDisposition, scheduleEmail, getScheduledEmail, rescheduleEmail, cancelScheduledEmail } from '../../lib/paubox-email'
 import { normalizeAttachments, chooseHtmlBody, type EmailAttachment } from '../../lib/email-body'
@@ -1950,7 +1951,7 @@ async function extractCredentials(req: Request): Promise<ExtractedCredentials> {
 }
 
 function unauthenticatedResponse(req: Request): Response {
-  const origin = new URL(req.url).origin
+  const origin = getPublicOrigin(req)
   return new Response(
     JSON.stringify({ error: 'unauthorized', error_description: 'Authentication required.' }),
     {
