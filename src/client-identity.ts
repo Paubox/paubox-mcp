@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto"
 
 export const CLIENT_NAME = "paubox-mcp"
 // Kept in step with package.json by release-please; see release-please-config.json extra-files.
-export const CLIENT_VERSION = "2.0.1" // x-release-please-version
+export const CLIENT_VERSION = "2.1.0" // x-release-please-version
 export const REQUEST_ID_PREFIX = "pbmcp-"
 
 export type Transport = "http" | "stdio"
