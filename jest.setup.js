@@ -18,3 +18,7 @@ process.env.HTTPS_PROXY = 'http://127.0.0.1:9'
 process.env.https_proxy = 'http://127.0.0.1:9'
 process.env.NO_PROXY = 'localhost,127.0.0.1'
 process.env.no_proxy = 'localhost,127.0.0.1'
+
+// Tests simulate upstream failures (dead proxy, fake 5xx), which the server
+// reports to Sentry. Keep CI runs out of the production Sentry project.
+process.env.PAUBOX_SENTRY_DISABLED = 'true'

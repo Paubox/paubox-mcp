@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { validateFormId } from "./validate-form-id.js"
 import { normalizeAttachments, chooseHtmlBody, type EmailAttachment } from "./email-body.js"
+import { instrumentToolRegistration, pauboxFetch } from "./client-identity.js"
 
 const apiKey = process.env.PAUBOX_API_KEY
 
@@ -15,6 +16,10 @@ if (!apiKey || apiKey.trim().length < 10) {
 }
 
 const FETCH_TIMEOUT_MS = 15000
+
+// ADR-050: every Paubox API request carries the paubox-mcp identity headers
+// and a pbmcp- request id (see client-identity.ts).
+const paubox = (input: string | URL, init?: RequestInit) => pauboxFetch("stdio", input, init)
 
 // ---------------------------------------------------------------------------
 // Paubox Email API client (inlined; the stdio build cannot import from lib/)
@@ -46,7 +51,7 @@ async function emailRequest(
   path: string,
   options: { method?: string; body?: unknown } = {}
 ): Promise<EmailApiResponse> {
-  const response = await fetch(`${EMAIL_API_BASE_URL}${path}`, {
+  const response = await paubox(`${EMAIL_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${apiKey!.trim()}`,
@@ -199,6 +204,11 @@ async function cancelScheduledMessage(sourceTrackingId: string): Promise<unknown
 // Reported to clients in the initialize handshake. Kept in step with
 // package.json by release-please; see release-please-config.json extra-files.
 const server = new McpServer({ name: "paubox", version: "2.0.1" }) // x-release-please-version
+
+// Each tool call runs in a tool context: its name is sent as
+// X-Paubox-Client-Command, and a failed Paubox request's id is appended to the
+// tool's error text so users can quote it to support.
+instrumentToolRegistration(server)
 
 server.tool(
   "validate_credentials",
@@ -563,7 +573,7 @@ async function formsRequest(
       }
     }
   }
-  const response = await fetch(url.toString(), {
+  const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${apiKey!.trim()}`,
@@ -617,7 +627,7 @@ server.tool(
       // Authenticated lookup first (retrieves inactive/archived forms). Fall
       // back to the public endpoint when the key lacks the forms scope so
       // get_form keeps working credential-free.
-      const authResponse = await fetch(`${FORMS_BASE_URL}/api/forms/${id}`, {
+      const authResponse = await paubox(`${FORMS_BASE_URL}/api/forms/${id}`, {
         headers: { Authorization: `Bearer ${apiKey!.trim()}` },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
@@ -625,7 +635,7 @@ server.tool(
         const payload = (await authResponse.json()) as { data: FormRecord }
         form = payload.data
       } else if (authResponse.status === 401 || authResponse.status === 403) {
-        const publicResponse = await fetch(`${FORMS_BASE_URL}/public/form_data/${id}`, {
+        const publicResponse = await paubox(`${FORMS_BASE_URL}/public/form_data/${id}`, {
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         })
         if (publicResponse.status === 404) {
@@ -705,7 +715,7 @@ server.tool(
       if (attachments && attachments.length > 0) {
         body.attachments = attachments
       }
-      const response = await fetch(`${FORMS_BASE_URL}/api/forms/${encodeURIComponent(validated)}/submissions`, {
+      const response = await paubox(`${FORMS_BASE_URL}/api/forms/${encodeURIComponent(validated)}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -1391,7 +1401,7 @@ async function marketingRequest(
       if (value !== undefined) url.searchParams.set(key, String(value))
     }
   }
-  const response = await fetch(url.toString(), {
+  const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${apiKey!.trim()}`,
@@ -2135,7 +2145,7 @@ async function receivingFetch(
       if (value !== undefined) url.searchParams.set(key, String(value))
     }
   }
-  const response = await fetch(url.toString(), {
+  const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${apiKey!.trim()}`,
@@ -2511,7 +2521,7 @@ async function webhookRequest(
     body?: unknown
   } = {}
 ): Promise<unknown> {
-  const response = await fetch(`${WEBHOOKS_API_BASE_URL}${path}`, {
+  const response = await paubox(`${WEBHOOKS_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
       Authorization: `Bearer ${apiKey!.trim()}`,

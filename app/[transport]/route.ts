@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import axios from 'axios'
+import * as Sentry from '@sentry/nextjs'
+import { installAxiosIdentity, instrumentToolRegistration, reportToolFailure } from '../../lib/client-identity'
 import { verifyAccessToken } from '../../lib/oauth-jwt'
 import { getPublicOrigin } from '../../lib/origin'
 import { checkPauboxCredentials } from '../../lib/paubox-credentials'
@@ -91,9 +93,26 @@ const jsonText = (payload: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
 })
 
+// ADR-050: identify paubox-mcp on every request to a Paubox API (User-Agent,
+// X-Paubox-Client*, a pbmcp- X-Request-Id). All the lib/ clients use the
+// global axios instance, so one install covers them.
+installAxiosIdentity(axios)
+
 const mcpHandler = createMcpHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (server: any) => {
+    // Every tool call runs in its own tool context: the tool name goes out as
+    // X-Paubox-Client-Command, a failed Paubox request's id is appended to
+    // the tool's error text, and 5xx / no-response failures go to Sentry.
+    instrumentToolRegistration(server, {
+      onFailure: (failure) => reportToolFailure(Sentry, failure),
+      around: (tool, run) =>
+        Sentry.withScope((scope) => {
+          scope.setTag('client', 'paubox-mcp')
+          scope.setTag('mcp_tool', tool)
+          return run()
+        }),
+    })
     server.tool(
       "validate_credentials",
       "Validate Paubox API credentials before sending email",
