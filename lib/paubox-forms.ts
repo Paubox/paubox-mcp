@@ -80,7 +80,7 @@ export type ListFormsResponse = {
 }
 
 export type ListFormsParams = {
-  customerId: number
+  customerId?: number
   formId?: string
   search?: string
   order?: 'asc' | 'desc'
@@ -238,9 +238,8 @@ export function createFormsClient({
 
   return {
     async listForms(params: ListFormsParams): Promise<ListFormsResponse> {
-      const query: Record<string, string | number | boolean> = {
-        customer_id: params.customerId,
-      }
+      const query: Record<string, string | number | boolean> = {}
+      if (params.customerId !== undefined) query.customer_id = params.customerId
       if (params.formId !== undefined) query.form_id = params.formId
       if (params.search !== undefined) query.search = params.search
       if (params.order !== undefined) query.order = params.order

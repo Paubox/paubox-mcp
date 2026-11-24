@@ -150,3 +150,18 @@ describe('hosted server client identification (ADR-050)', () => {
     expect(ids.size).toBe(forms.length)
   }, 30000)
 })
+
+describe('hosted list_forms customer scoping', () => {
+  it("omits customer_id without a customerId, so the Forms API uses the key's own customer", async () => {
+    respondStatus = 401
+    const result = await callTool('list_forms', {})
+    expect(result.content[0].text).not.toContain('Invalid arguments')
+    await callTool('list_forms', { customerId: 42 })
+
+    const customerIds = seen
+      .filter((s) => s.url.includes('/v1/forms/api/forms'))
+      .map((s) => new URL(s.url, 'https://api.paubox.com').searchParams.get('customer_id'))
+    expect(customerIds[0]).toBeNull()
+    expect(customerIds.at(-1)).toBe('42')
+  }, 30000)
+})
