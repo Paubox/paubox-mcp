@@ -259,7 +259,7 @@ Submit form "550e8400-e29b-41d4-a716-446655440000" with first_name "Jane", last_
 
 The following tools manage forms and their submissions. Unlike `get_form` and `submit_form` (which remain credential-free), they require a **scoped Paubox API key** carrying the `forms` scope, sent as a Bearer token. This reuses the existing `apiKey` credential — via OAuth, `x-paubox-api-key` header, tool parameter, or the `PAUBOX_API_KEY` env var on stdio. Scoped API keys are managed in the Paubox admin dashboard.
 
-- `list_forms`: List a customer's forms with search, sorting, archived/active filters, and pagination (`customerId` required)
+- `list_forms`: List a customer's forms with search, sorting, archived/active filters, and pagination (`customerId` defaults to the API key's customer)
 - `create_form`: Create a new form from a title, field schema (`formJson`), and `customerId`, with optional description, HTML/CSS, notification recipients, and signable settings
 - `update_form`: Partially update a form — title, description, `formJson`, vanity URL, recipients, active status, or subscription list
 - `archive_form` / `unarchive_form`: Archive a form (deactivates it) or restore it

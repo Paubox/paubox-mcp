@@ -745,7 +745,7 @@ server.tool(
   "list_forms",
   "List Paubox Forms for a customer. Supports search, filtering by archived/active status, ordering, and pagination. Returns form summaries plus page info.",
   {
-    customerId: z.number().int().describe("Customer ID that owns the forms (required)"),
+    customerId: z.number().int().optional().describe("Customer ID that owns the forms (defaults to the API key's customer)"),
     search: z.string().optional().describe("Search text matched against form title and description"),
     formId: z.string().optional().describe("Filter to a specific form UUID"),
     archived: z.boolean().optional().describe("Filter by archived status"),
@@ -769,7 +769,7 @@ server.tool(
     page,
     items,
   }: {
-    customerId: number
+    customerId?: number
     search?: string
     formId?: string
     archived?: boolean

@@ -612,7 +612,7 @@ const mcpHandler = createMcpHandler(
       "List Paubox Forms for a customer. Requires an API key with the \"forms\" scope. Supports search, filtering by active/archived status, ordering, and pagination.",
       {
         apiKey: z.string().optional().describe("Paubox API key with the \"forms\" scope"),
-        customerId: z.number().int().describe("Paubox customer ID the forms belong to"),
+        customerId: z.number().int().optional().describe("Paubox customer ID the forms belong to (defaults to the API key's customer)"),
         search: z.string().optional().describe("Search text matched against form title and description"),
         formId: z.string().optional().describe("Filter to a specific form UUID"),
         archived: z.boolean().optional().describe("Filter by archived status"),
@@ -624,7 +624,7 @@ const mcpHandler = createMcpHandler(
       },
       async ({ apiKey: paramKey, customerId, search, formId, archived, active, orderBy, order, page, items }: {
         apiKey?: string;
-        customerId: number;
+        customerId?: number;
         search?: string;
         formId?: string;
         archived?: boolean;

@@ -135,15 +135,6 @@ describe('Paubox Forms management MCP tools', () => {
     }
   });
 
-  it('list_forms returns a validation error when customerId is missing', async () => {
-    const response = await callTool(11, 'list_forms', {});
-
-    expect(response.status).toBe(200);
-    const data = parseToolResult(response.text);
-    expect(data.result.isError).toBe(true);
-    expect(data.result.content[0].text).toContain('Invalid arguments for tool list_forms');
-  });
-
   it('copy_form returns a validation error when title is missing', async () => {
     const response = await callTool(12, 'copy_form', { formId: NON_EXISTENT_UUID });
 

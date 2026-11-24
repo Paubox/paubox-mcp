@@ -136,6 +136,15 @@ describe('createFormsClient requests', () => {
     expect(calls[0].params).toEqual({ customer_id: 7 })
   })
 
+  it("listForms omits customer_id without a customerId, so the API uses the key's customer", async () => {
+    const { fn, calls } = fakeHttp(async () => ({
+      status: 200,
+      data: { results: [], page_info: { count: 0, pages: 0, page: 1, items: 50 } },
+    }))
+    await client(fn).listForms({})
+    expect(calls[0].params).toStrictEqual({})
+  })
+
   it('createForm defaults version to 1 and omits undefined optionals', async () => {
     const { fn, calls } = fakeHttp(async () => ({ status: 200, data: { id: 'new-id' } }))
     const result = await client(fn).createForm({
