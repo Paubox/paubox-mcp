@@ -174,6 +174,14 @@ Add to `.cursor/mcp.json`:
 
 > **Note:** When connecting via the `@paubox/mcp` npm package (Claude Code / stdio), the API key comes from the `PAUBOX_API_KEY` environment variable set at install time — `apiKey` is not required in any tool call. When connecting via the hosted HTTP server (`https://mcp.paubox.com/mcp`), the API key is resolved from the OAuth token, the `x-paubox-api-key` header, or tool parameters.
 
+### get_paubox_account (stdio / npm package only)
+
+Shows which Paubox user the server can act as, using the [Paubox CLI](https://github.com/Paubox/paubox-cli)'s browser login rather than an API key: email, account, roles, MFA status and when the login expires. It is the first tool built on a user login, and confirms an agent is acting as the right person before account-level tasks.
+
+Setup: install the CLI and run `paubox auth login --web` on the same machine. The server reads the session by running `paubox auth token --json`; set `PAUBOX_CLI_PATH` to use a specific CLI build. `PAUBOX_API_KEY` is optional for this tool, and the server now starts without it (tools that need the key say so when called).
+
+Not available on the hosted server, which has no local CLI to ask, so it is not listed in `tools.json`.
+
 ### validate_credentials
 
 Confirms that a Paubox API key is present and correctly formatted.
@@ -321,7 +329,8 @@ Which campaign send last month had the worst click rate, and who clicked the pri
 `tools.json` is the manifest of every tool this server exposes. A test in
 `__tests__/mcp-server.test.ts` calls `tools/list` and asserts the live set
 matches it exactly, so adding or removing a tool fails CI until the manifest is
-updated in the same change.
+updated in the same change. It describes the hosted server; the stdio-only
+`get_paubox_account` is deliberately absent.
 
 When you update `tools.json`, update these too:
 

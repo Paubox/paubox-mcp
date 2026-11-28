@@ -5,15 +5,34 @@ import { z } from "zod"
 import { validateFormId } from "./validate-form-id.js"
 import { normalizeAttachments, chooseHtmlBody, type EmailAttachment } from "./email-body.js"
 import { instrumentToolRegistration, pauboxFetch } from "./client-identity.js"
+import { readCliSession } from "./cli-session.js"
 
-const apiKey = process.env.PAUBOX_API_KEY
+const rawApiKey = process.env.PAUBOX_API_KEY?.trim()
 
-if (!apiKey || apiKey.trim().length < 10) {
-  process.stderr.write(
-    "Error: PAUBOX_API_KEY environment variable is required (minimum 10 characters)\n"
-  )
+if (rawApiKey && rawApiKey.length < 10) {
+  process.stderr.write("Error: PAUBOX_API_KEY must be at least 10 characters\n")
   process.exit(1)
 }
+
+// Optional since get_paubox_account works from the Paubox CLI's browser login
+// alone. Every tool that needs the key says so when it is missing.
+if (!rawApiKey) {
+  process.stderr.write(
+    "Warning: PAUBOX_API_KEY is not set. Only get_paubox_account (via `paubox auth login`) and the credential-free forms tools will work.\n"
+  )
+}
+
+const MISSING_API_KEY =
+  "PAUBOX_API_KEY is not set. Add it to this MCP server's environment to use this tool."
+
+// Throws rather than exiting, so a missing key fails the one tool call with a
+// message the agent can relay, instead of killing the server.
+function requireApiKey(): string {
+  if (!rawApiKey) throw new Error(MISSING_API_KEY)
+  return rawApiKey
+}
+
+const apiKey = rawApiKey
 
 const FETCH_TIMEOUT_MS = 15000
 
@@ -54,7 +73,7 @@ async function emailRequest(
   const response = await paubox(`${EMAIL_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${apiKey!.trim()}`,
+      Authorization: `Bearer ${requireApiKey()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -215,7 +234,10 @@ server.tool(
   "Confirm that the Paubox API credentials configured via environment variables are present and correctly formatted",
   {},
   async () => {
-    const masked = apiKey!.slice(0, 4) + "*".repeat(Math.max(0, apiKey!.length - 4))
+    if (!apiKey) {
+      return { content: [{ type: "text" as const, text: MISSING_API_KEY }] }
+    }
+    const masked = apiKey.slice(0, 4) + "*".repeat(Math.max(0, apiKey.length - 4))
     return {
       content: [
         {
@@ -223,6 +245,66 @@ server.tool(
           text: `Credentials configured\n\nAPI Key: ${masked}\n\nReady to send email with send_secure_email.`,
         },
       ],
+    }
+  }
+)
+
+server.tool(
+  "get_paubox_account",
+  "Show which Paubox user this server can act as, from the Paubox CLI's browser login (`paubox auth login`): their email, account, roles, and when the login expires. Use it to confirm who an account-level task would run as. Needs the Paubox CLI installed and logged in on this machine; PAUBOX_API_KEY is not used.",
+  {},
+  async () => {
+    try {
+      const session = await readCliSession()
+      // The session acts as the person, so it goes only to IAM and is never echoed back.
+      const response = await paubox(`${session.iamUrl}/v1/token_entitlements`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
+      if (response.status === 401) {
+        throw new Error("The Paubox CLI's login has expired or was revoked. Run `paubox auth login` in a terminal.")
+      }
+      if (!response.ok) {
+        throw new Error(`Paubox IAM error (HTTP ${response.status})`)
+      }
+      const me = (await response.json()) as {
+        email?: string
+        name?: string
+        customer?: string | null
+        customer_id?: number | null
+        roles?: string[]
+        mfa_verified?: boolean
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                email: me.email,
+                name: me.name,
+                customer: me.customer ?? null,
+                customerId: me.customer_id ?? session.customerId ?? null,
+                roles: me.roles ?? [],
+                mfaVerified: me.mfa_verified === true,
+                environment: session.environment,
+                expiresAt: session.expiresAt,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Could not read the Paubox login: ${error instanceof Error ? error.message : "Unknown error"}`,
+          },
+        ],
+      }
     }
   }
 )
@@ -576,7 +658,7 @@ async function formsRequest(
   const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${apiKey!.trim()}`,
+      Authorization: `Bearer ${requireApiKey()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -628,7 +710,8 @@ server.tool(
       // back to the public endpoint when the key lacks the forms scope so
       // get_form keeps working credential-free.
       const authResponse = await paubox(`${FORMS_BASE_URL}/api/forms/${id}`, {
-        headers: { Authorization: `Bearer ${apiKey!.trim()}` },
+        // No key is a 401 like any other, which falls through to the public endpoint.
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (authResponse.ok) {
@@ -1404,7 +1487,7 @@ async function marketingRequest(
   const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${apiKey!.trim()}`,
+      Authorization: `Bearer ${requireApiKey()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -2148,7 +2231,7 @@ async function receivingFetch(
   const response = await paubox(url.toString(), {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${apiKey!.trim()}`,
+      Authorization: `Bearer ${requireApiKey()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -2524,7 +2607,7 @@ async function webhookRequest(
   const response = await paubox(`${WEBHOOKS_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${apiKey!.trim()}`,
+      Authorization: `Bearer ${requireApiKey()}`,
       "Content-Type": "application/json",
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
